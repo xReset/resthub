@@ -1,0 +1,42 @@
+{
+    "schema":  1,
+    "minLoader":  2,
+    "release":  "2026-08-31.1",
+    "revision":  "dacc20bcec72a127bacc89ed104a3efafb5967d3",
+    "files":  {
+                  "hub.lua":  {
+                                  "sha256":  "61b8eaab2de295c4b8056b8967c4118f41bbeface2d0f8bb29ae405424c8ea46",
+                                  "localName":  "hub.lua"
+                              },
+                  "r3st_ui.lua":  {
+                                      "sha256":  "8007a26b4b6972cf326fb0c9e8fae863860b3f8e5ad7945e876486d397c40e94",
+                                      "localName":  "r3st_ui.lua"
+                                  },
+                  "telemetry.lua":  {
+                                        "sha256":  "14b5d3057196696c4b8055855bc7244d949e4b9a6093bcdf9976c6e24a08bdac",
+                                        "localName":  "resthub_telemetry.lua"
+                                    },
+                  "games/blr_hub.lua":  {
+                                            "sha256":  "104fefd3a438609407573019c2a6b5a255e0035b66112cad259bdeb12873e702",
+                                            "localName":  "blr_hub.lua"
+                                        },
+                  "games/gd2.lua":  {
+                                        "sha256":  "251d6928bdfe54687109383d5201fb23af00d221e560a61b08a2d4ce1f3cf5ab",
+                                        "localName":  "gd2.lua"
+                                    }
+              },
+    "modules":  [
+                    {
+                        "id":  "blue-lock-rivals",
+                        "gameId":  6325068386,
+                        "placeId":  18668065416,
+                        "path":  "games/blr_hub.lua"
+                    },
+                    {
+                        "id":  "ghost-driver",
+                        "gameId":  10173311467,
+                        "placeId":  137228775845999,
+                        "path":  "games/gd2.lua"
+                    }
+                ]
+}
