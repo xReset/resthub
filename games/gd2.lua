@@ -1,5 +1,9 @@
 --------------------------------------------------------------------------
--- gd2.lua -- R3ST Hub / Ghost Driver v2026-08-31.gd2.34 (2026-08-31)   PlaceId 137228775845999
+-- gd2.lua -- R3ST Hub / Ghost Driver v2026-08-31.gd2.35 (2026-08-31)   PlaceId 137228775845999
+-- 2026-08-31.gd2.35: widen the embedded design body from 920x600 to 1040x600
+--   so it matches the hub host ratio instead of uniform-scaling into a narrow
+--   panel with dead space. Cash budget adaptive mode is ready by default, but
+--   Cash Magnet still boots OFF because its stock path emits a game remote.
 -- 2026-08-31.gd2.34: adopt the shared R3ST control template (scripts/r3st_ui.lua).
 --   The seven tabs, every toggle, slider, button and readout are unchanged --
 --   the kit exposes the same widget signatures -- but they now draw as two
@@ -92,7 +96,7 @@ local SoundService = game:GetService("SoundService")
 local HttpService = game:GetService("HttpService")
 
 local LP = Players.LocalPlayer
-local BUILD_VERSION = "2026-08-31.gd2.34"
+local BUILD_VERSION = "2026-08-31.gd2.35"
 local LOG_FILE = "logs/gd2.log"
 local CFG_FILE = "gd2_config.json"
 local OLD_CFG_FILE = "gd_config.json"
@@ -2209,7 +2213,7 @@ end
 --==========================================================================
 local CashMagnet = {}
 CashMagnet.enabled = false
-CashMagnet.auto = false
+CashMagnet.auto = true
 CashMagnet.boundCar = nil
 CashMagnet.held = {}
 CashMagnet.status = "off"
@@ -4377,7 +4381,7 @@ end
 function UI.build()
 	-- hub.lua publishes __R3ST_HOST immediately before running us. When it is
 	-- there the hub owns the ScreenGui, the window chrome, the blur, the drag
-	-- and the show/hide key, so we build the same 920x600 body scaled into its
+	-- and the show/hide key, so we build the same 1040x600 body scaled into its
 	-- content host and grow none of those four. Standalone is unchanged.
 	local GH = GENV.__R3ST_HOST
 	local embed = (type(GH) == "table" and typeof(GH.host) == "Instance") and GH or nil
@@ -4421,7 +4425,7 @@ function UI.build()
 		BackgroundTransparency = embed and 1 or 0,
 		BorderSizePixel = 0,
 		Position = embed and UDim2.new() or UDim2.fromOffset(Config.data.ui.x, Config.data.ui.y),
-		Size = UDim2.fromOffset(920, 600),
+		Size = UDim2.fromOffset(1040, 600),
 		-- when the host is RobloxGui we are a sibling of the core frames, so
 		-- sit above them rather than behind
 		ZIndex = 50,
@@ -4441,7 +4445,7 @@ function UI.build()
 		local function refit()
 			local hs = embed.host.AbsoluteSize
 			if hs.X < 8 or hs.Y < 8 then return end
-			uiScale.Scale = math.min(1, hs.X / 920, hs.Y / 600)
+			uiScale.Scale = math.min(1, hs.X / 1040, hs.Y / 600)
 		end
 		refit()
 		UI.conns[#UI.conns + 1] = embed.host:GetPropertyChangedSignal("AbsoluteSize"):Connect(refit)
@@ -4468,7 +4472,7 @@ function UI.build()
 	label(bar, BUILD_VERSION, 10, COL.dim, 20, 29, 240, 20)
 
 	local hideBtn = new("TextButton", {
-		BackgroundTransparency = 1, Position = UDim2.fromOffset(872, 8),
+		BackgroundTransparency = 1, Position = UDim2.new(1, -48, 0, 8),
 		Size = UDim2.fromOffset(34, 34), Font = Enum.Font.GothamBold,
 		TextSize = 14, TextColor3 = COL.dim, Text = "-", AutoButtonColor = false,
 	}, bar)
@@ -4552,7 +4556,7 @@ function UI.build()
 		BackgroundColor3 = COL.panel,
 		BorderSizePixel = 0,
 		Position = UDim2.fromOffset(184, 68),
-		Size = UDim2.fromOffset(726, 500),
+		Size = UDim2.fromOffset(846, 500),
 	}, root)
 	corner(body, 8)
 	stroke(body, COL.line)
@@ -4563,7 +4567,7 @@ function UI.build()
 			BackgroundTransparency = 1,
 			BorderSizePixel = 0,
 			Position = UDim2.fromOffset(10, 8),
-			Size = UDim2.fromOffset(706, 484),
+			Size = UDim2.fromOffset(826, 484),
 			CanvasSize = UDim2.new(),
 			ScrollBarThickness = 3,
 			ScrollBarImageColor3 = COL.line,
@@ -4571,7 +4575,7 @@ function UI.build()
 		}, body)
 		-- Two columns of cards, template width. The page builders below never
 		-- position anything themselves.
-		W.page(page, { width = 700 })
+		W.page(page, { width = 820 })
 		UI.tabs[name] = page
 		local built = U.guard("ui.build." .. name, builders[name], page)
 		page.CanvasSize = UDim2.fromOffset(0, nextY(page) + 12)

@@ -1,7 +1,10 @@
--- R3ST Hub v2026-08-31.13 (2026-08-31)
+-- R3ST Hub v2026-08-31.14 (2026-08-31)
 -- Rung 2 (client-created UI only). Server sees: nothing; no game state or remotes touched.
 -- Re-inject safe: self-teardown on load; RightShift = show/hide; K = unload.
 -- Changelog:
+--   .14 remove the redundant Universal browser and unrelated tools; Admin and
+--      Anims remain the general section. Matching modules always open on inject.
+--      Hub surfaces now use one black instead of competing near-black layers.
 --   .13 agent reload API on getgenv().__R3ST_HUB. An agent has a live Luau
 --      channel through the Potassium MCP server but had no way to make the
 --      client pick up a file it had just deployed, so every iteration ended in
@@ -67,7 +70,7 @@
 --   the moment the chunk returns, so nothing leaks into a later inject.
 --   Embedded today: gd2.lua, blr_hub.lua, anims.lua.
 
-local BUILD_VERSION = "2026-08-31.13"
+local BUILD_VERSION = "2026-08-31.14"
 local GKEY = "__R3ST_HUB"
 local HOST_KEY = "__R3ST_HOST"
 local CONFIG_FILE = "rbx_hub_template_config.json"
@@ -143,8 +146,8 @@ local function hubLog(level, message)
 end
 
 C = {
-	bg = Color3.fromRGB(8, 9, 11), panel = Color3.fromRGB(13, 15, 17), raised = Color3.fromRGB(20, 22, 25),
-	hover = Color3.fromRGB(29, 31, 35), line = Color3.fromRGB(45, 48, 53), text = Color3.fromRGB(238, 239, 241),
+	bg = Color3.fromRGB(7, 7, 9), panel = Color3.fromRGB(7, 7, 9), raised = Color3.fromRGB(17, 17, 21),
+	hover = Color3.fromRGB(24, 24, 29), line = Color3.fromRGB(42, 42, 50), text = Color3.fromRGB(240, 240, 245),
 	dim = Color3.fromRGB(165, 167, 172), green = Color3.fromRGB(72, 205, 57), white = Color3.fromRGB(250, 250, 250),
 	bad = Color3.fromRGB(255, 120, 120),
 }
@@ -166,7 +169,7 @@ state = {
 	uiScale = 100,
 	blur = 5,
 	autosave = true,
-	autoOpen = false,
+	autoOpen = true,
 }
 
 local function connect(signal, fn)
@@ -253,19 +256,13 @@ local REGISTRY = {
 		desc = "Player ESP, chams and healthbars." },
 }
 
--- Universal tools: no PlaceId gate, but each one still states what it is.
--- `embed` marks the ones that render inside the hub content host.
-local UNIVERSAL = {
+-- General tools keep dedicated sidebar entries; there is no redundant
+-- Universal browser. Neither is automatically executed.
+local GENERAL = {
 	{ id = "anims", name = "Anims", file = "anims.lua", embed = true, gkey = "__ANIMS_GUI",
 		desc = "M7-derived animation packs: 21 custom, 35 Roblox, 24 UGC, per-slot mixing." },
 	{ id = "admin", name = "Admin", file = "admin.lua", gkey = "__ADMIN_CORE",
 		desc = "The ] command bar. Opens its own minimal bar -- not a panel." },
-	{ id = "iy", name = "Infinite Yield", file = "iy.lua",
-		desc = "Third-party command suite. Loud by design; opens standalone." },
-	{ id = "esp-template", name = "Universal ESP", file = "universal_esp_template.lua",
-		desc = "Generic rig ESP. Tune per game before trusting it." },
-	{ id = "game-dump", name = "Game Dump", file = "game_dump.lua",
-		desc = "Read-only dump of this place into the Potassium workspace." },
 }
 
 local registryCount = #REGISTRY
@@ -328,7 +325,6 @@ local function loadConfig()
 	if type(saved.uiScale) == "number" then state.uiScale = math.clamp(saved.uiScale, 75, 115) end
 	if type(saved.blur) == "number" then state.blur = math.clamp(saved.blur, 0, 12) end
 	if type(saved.autosave) == "boolean" then state.autosave = saved.autosave end
-	if type(saved.autoOpen) == "boolean" then state.autoOpen = saved.autoOpen end
 end
 
 local function saveConfig(force)
@@ -344,6 +340,9 @@ local function saveConfig(force)
 end
 
 loadConfig()
+-- The identity-matched module is the product entry point, not a second click.
+-- Foreign modules still fail closed before this policy is evaluated.
+state.autoOpen = true
 
 local entryById = {}
 for _, entry in ipairs(REGISTRY) do entryById[entry.id] = entry end
@@ -779,41 +778,6 @@ connect(clearRecent.Activated, function()
 end)
 
 --==========================================================================
--- Universal (real: launches the shared tools, embeds the ones that can)
---==========================================================================
-local uniPage = newPage("Universal")
-label(uniPage, "Universal", UDim2.fromOffset(400,36), UDim2.fromOffset(24,24), 24, C.text, true)
-label(uniPage, "Shared tools with no PlaceId gate. They are not automatically safe in every place — read each line.",
-	UDim2.new(1,-48,0,20), UDim2.fromOffset(24,62), 12, C.dim)
-local uniStatus = label(uniPage, "", UDim2.new(1,-48,0,18), UDim2.fromOffset(24,86), 11, C.dim)
-local uniList = scrollList(uniPage, UDim2.fromOffset(24,110), UDim2.new(1,-48,1,-134))
-do
-	local y = 0
-	for _, tool in ipairs(UNIVERSAL) do
-		local row = mk("Frame", { Size=UDim2.new(1,-8,0,64), Position=UDim2.fromOffset(0,y), BackgroundColor3=C.raised, BorderSizePixel=0 }, uniList)
-		round(row,7); stroke(row)
-		label(row, tool.name, UDim2.fromOffset(220,24), UDim2.fromOffset(14,8), 13, C.text, true)
-		label(row, tool.embed and "opens in this window" or "opens standalone", UDim2.fromOffset(200,18), UDim2.fromOffset(14,32), 11,
-			tool.embed and C.green or C.dim)
-		local d = label(row, tool.desc, UDim2.new(1,-460,0,44), UDim2.fromOffset(230,10), 11, C.dim)
-		d.TextWrapped = true
-		local open = button(row, tool.embed and "Open" or "Launch", UDim2.fromOffset(110,32), UDim2.new(1,-124,0,16))
-		connect(open.Activated, function()
-			if tool.embed and pages[tool.name] then
-				setPage(tool.name)
-				return
-			end
-			local ok, err = runModule(tool, nil)
-			uniStatus.Text = ok and (tool.name .. " launched — its own window is open behind the hub")
-				or (tool.name .. ": " .. tostring(err))
-			uniStatus.TextColor3 = ok and C.green or C.bad
-		end)
-		y += 70
-	end
-	uniList.CanvasSize = UDim2.fromOffset(0, y)
-end
-
---==========================================================================
 -- Embedded module pages
 --   One per embeddable target: the game for THIS place, plus Anims.
 --   The host frame is what the module parents itself into.
@@ -882,7 +846,7 @@ elseif activeEntry then
 	end)
 end
 
-local animsEntry = UNIVERSAL[1]
+local animsEntry = GENERAL[1]
 local _, mountAnims = makeHostPage("Anims", animsEntry, "Animation packs from the M7 capture. Backend unchanged; frontend is the hub's.")
 
 -- Admin keeps its own command bar by contract (hub skill S7) -- a launcher page,
@@ -944,12 +908,10 @@ label(settingsCard,"CONFIGURATION",UDim2.fromOffset(300,22),UDim2.fromOffset(16,
 settingToggle("Autosave", function() return state.autosave end, function(v) state.autosave = v end, 160)
 label(settingsCard, "Applies to the hub and to every module it loads — each keeps its own config file.",
 	UDim2.fromOffset(700,20), UDim2.fromOffset(16,190), 11, C.dim)
-settingToggle("Open this place's module on inject", function() return state.autoOpen end,
-	function(v) state.autoOpen = v end, 216)
-label(settingsCard, "One switch, not one per game: whichever module matches the place you are in.",
-	UDim2.fromOffset(700,20), UDim2.fromOffset(16,246), 11, C.dim)
+label(settingsCard, "Matching game modules open automatically on every inject.",
+	UDim2.fromOffset(700,20), UDim2.fromOffset(16,222), 11, C.dim)
 
-local settingY = 286
+local settingY = 262
 local saveNow=button(settingsCard,"Save configuration",UDim2.fromOffset(180,34),UDim2.fromOffset(16,settingY))
 connect(saveNow.Activated,function()
 	saveConfig(true)
@@ -977,7 +939,7 @@ do
 		{ "Hub build", BUILD_VERSION },
 		{ "This PlaceId", tostring(game.PlaceId) },
 		{ "Matched module", activeEntry and (activeEntry.name .. "  ·  " .. activeEntry.file) or "none — browser is inert here" },
-		{ "Registry", tostring(registryCount) .. " games, " .. tostring(#UNIVERSAL) .. " universal tools" },
+		{ "Registry", tostring(registryCount) .. " games · Admin + Anims general tools" },
 		{ "Embedded here", (activeEntry and activeEntry.embed) and "yes (renders in this window)" or "no (module opens standalone)" },
 		{ "Config", CONFIG_FILE },
 		{ "Log", "logs/rbx_hub.log" },
@@ -1007,7 +969,6 @@ do
 	navOrder[#navOrder+1] = { "☆", "Favorites" }
 	navOrder[#navOrder+1] = { "◷", "Recent" }
 	navOrder[#navOrder+1] = { "", "-" }
-	navOrder[#navOrder+1] = { "◎", "Universal" }
 	navOrder[#navOrder+1] = { ">_", "Admin" }
 	navOrder[#navOrder+1] = { "◇", "Anims" }
 	navOrder[#navOrder+1] = { "", "-" }
