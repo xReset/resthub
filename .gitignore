@@ -1,0 +1,17 @@
+# Secrets and local telemetry configuration
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+resthub_telemetry.json
+telemetry-private/
+secrets/
+.codex/
+.mcp.json
+
+# Local output
+*.log
+.DS_Store
+Thumbs.db
