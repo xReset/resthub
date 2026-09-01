@@ -1,8 +1,8 @@
 {
     "schema":  1,
     "minLoader":  2,
-    "release":  "2026-08-31.2",
-    "revision":  "58b3dcd41468478053fe4d6ac88bb4c696faaf39",
+    "release":  "2026-09-01.3",
+    "revision":  "57b098c2590b117bffc63e3618245749e0567264",
     "files":  {
                   "hub.lua":  {
                                   "sha256":  "57706ed04c132b93f1cbd8443c7bfebc56a767214ed317a62bed560abb92f3aa",
@@ -17,7 +17,7 @@
                                         "localName":  "resthub_telemetry.lua"
                                     },
                   "games/blr_hub.lua":  {
-                                            "sha256":  "104fefd3a438609407573019c2a6b5a255e0035b66112cad259bdeb12873e702",
+                                            "sha256":  "ee98a0e685596aec2d4071d6a89d9cafcae74f5b4f80a19ae93bec179391889e",
                                             "localName":  "blr_hub.lua"
                                         },
                   "games/gd2.lua":  {
