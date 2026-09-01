@@ -1,8 +1,8 @@
--- R3ST Hub remote loader v2026-08-31.2
+-- R3ST Hub remote loader v2026-09-01.3
 -- Public bootstrap: immutable release fetch, SHA-256 verification, verified cache fallback.
 -- Rung 2: distribution/bootstrap only; no game state or Roblox remotes touched.
 
-local LOADER_VERSION = 2
+local LOADER_VERSION = 3
 local OWNER, REPO, CHANNEL = "xReset", "resthub", "main"
 local RAW_ROOT = ("https://raw.githubusercontent.com/%s/%s/"):format(OWNER, REPO)
 local MANIFEST_URL = RAW_ROOT .. CHANNEL .. "/manifest.json"
@@ -151,7 +151,7 @@ for _, module in ipairs(manifest.modules) do
     end
 end
 
-local required = { "hub.lua", "r3st_ui.lua" }
+local required = { "hub.lua", "r3st_ui.lua", "anims.lua" }
 if selected then required[#required + 1] = selected.path end
 local optional = { "telemetry.lua" }
 local releaseRoot = RAW_ROOT .. manifest.revision .. "/"

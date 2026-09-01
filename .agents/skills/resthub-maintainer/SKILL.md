@@ -17,6 +17,7 @@ Potassium is canonical; resthub is a generated distribution:
 |---|---|
 | `scripts/hub.lua` | `hub.lua` |
 | `scripts/r3st_ui.lua` | `r3st_ui.lua` |
+| `scripts/anims.lua` | `anims.lua` |
 | `games/blue-lock-rivals/scripts/blr_hub.lua` | `games/blr_hub.lua` |
 | `games/ghost-driver/scripts/gd2.lua` | `games/gd2.lua` |
 

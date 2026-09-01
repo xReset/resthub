@@ -2,7 +2,7 @@ param([switch]$CheckRemote)
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $Compiler = "C:\Users\croni\Downloads\OpXOyuApWKTlFzrV\tools\luau-compile.exe"
-$Lua = @("loader.lua", "telemetry.lua", "hub.lua", "r3st_ui.lua", "games/blr_hub.lua", "games/gd2.lua")
+$Lua = @("loader.lua", "telemetry.lua", "hub.lua", "r3st_ui.lua", "anims.lua", "games/blr_hub.lua", "games/gd2.lua")
 foreach ($path in $Lua) {
     $full = Join-Path $Root ($path -replace '/', '\')
     if (!(Test-Path $full -PathType Leaf)) { throw "GATE FAIL missing $path" }
@@ -13,7 +13,7 @@ foreach ($path in $Lua) {
 $manifestPath = Join-Path $Root "manifest.json"
 if (!(Test-Path $manifestPath -PathType Leaf)) { throw "GATE FAIL missing manifest.json" }
 $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
-if ($manifest.schema -ne 1 -or $manifest.minLoader -gt 2) { throw "GATE FAIL manifest schema/loader" }
+if ($manifest.schema -ne 1 -or $manifest.minLoader -gt 3) { throw "GATE FAIL manifest schema/loader" }
 if ($manifest.revision -notmatch '^[0-9a-fA-F]{40}$') { throw "GATE FAIL manifest revision" }
 foreach ($property in $manifest.files.PSObject.Properties) {
     $path = $property.Name

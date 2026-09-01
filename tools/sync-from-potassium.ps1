@@ -8,6 +8,7 @@ $Root = Split-Path -Parent $PSScriptRoot
 $Copies = [ordered]@{
     "scripts\hub.lua" = "hub.lua"
     "scripts\r3st_ui.lua" = "r3st_ui.lua"
+    "scripts\anims.lua" = "anims.lua"
     "games\blue-lock-rivals\scripts\blr_hub.lua" = "games\blr_hub.lua"
     "games\ghost-driver\scripts\gd2.lua" = "games\gd2.lua"
 }
@@ -23,6 +24,7 @@ $Files = [ordered]@{}
 $LocalNames = [ordered]@{
     "hub.lua" = "hub.lua"
     "r3st_ui.lua" = "r3st_ui.lua"
+    "anims.lua" = "anims.lua"
     "telemetry.lua" = "resthub_telemetry.lua"
     "games/blr_hub.lua" = "blr_hub.lua"
     "games/gd2.lua" = "gd2.lua"
@@ -34,7 +36,7 @@ foreach ($path in $LocalNames.Keys) {
 }
 $Manifest = [ordered]@{
     schema = 1
-    minLoader = 2
+    minLoader = 3
     release = $Release
     revision = $Revision
     files = $Files

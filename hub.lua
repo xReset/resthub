@@ -1,7 +1,10 @@
--- R3ST Hub v2026-08-31.14 (2026-08-31)
+-- R3ST Hub v2026-09-01.15 (2026-09-01)
 -- Rung 2 (client-created UI only). Server sees: nothing; no game state or remotes touched.
 -- Re-inject safe: self-teardown on load; RightShift = show/hide; K = unload.
 -- Changelog:
+--   .15 Anims is a persistent controller, not the active game module. Route
+--      changes and GD2 reloads detach only its panel; explicit Anims OFF owns
+--      restore. Returning to Anims remounts the existing controller.
 --   .14 remove the redundant Universal browser and unrelated tools; Admin and
 --      Anims remain the general section. Matching modules always open on inject.
 --      Hub surfaces now use one black instead of competing near-black layers.
@@ -70,7 +73,7 @@
 --   the moment the chunk returns, so nothing leaks into a later inject.
 --   Embedded today: gd2.lua, blr_hub.lua, anims.lua.
 
-local BUILD_VERSION = "2026-08-31.14"
+local BUILD_VERSION = "2026-09-01.15"
 local GKEY = "__R3ST_HUB"
 local HOST_KEY = "__R3ST_HOST"
 local CONFIG_FILE = "rbx_hub_template_config.json"
@@ -501,10 +504,12 @@ local function unmountActive()
 	if not mountedModule then return end
 	local handle = G[mountedModule.gkey]
 	if type(handle) == "table" then
-		local fn = handle.destroy or handle.unload
+		-- Anims owns persistent character state. A route change owns only its
+		-- panel; explicit Anims OFF is the sole restore path.
+		local fn = mountedModule.id == "anims" and handle.detach or (handle.destroy or handle.unload)
 		if type(fn) == "function" then pcall(fn) end
 	end
-	hubLog("info", "unmounted " .. mountedModule.name)
+	hubLog("info", (mountedModule.id == "anims" and "detached " or "unmounted ") .. mountedModule.name)
 	mountedModule = nil
 end
 
@@ -527,6 +532,20 @@ local function runModule(entry, host)
 			ui = UIKit, -- the shared control template (scripts/r3st_ui.lua)
 			back = function() setPage("Home") end,
 		}
+	end
+	-- Re-entering Anims remounts its panel without restarting the controller or
+	-- restoring applied ids. This also keeps Anims intact across GD2 reloads.
+	local existing = entry.id == "anims" and G[entry.gkey] or nil
+	if host and type(existing) == "table" and type(existing.mount) == "function" then
+		local mounted, mountErr = pcall(existing.mount, G[HOST_KEY])
+		G[HOST_KEY] = nil
+		if not mounted then
+			hubLog("warn", "Anims panel remount failed: " .. tostring(mountErr))
+			return false, tostring(mountErr)
+		end
+		mountedModule = { gkey = entry.gkey, name = entry.name, id = entry.id }
+		hubLog("info", "module remounted " .. entry.file .. " (controller preserved)")
+		return true
 	end
 	local ran, runErr = pcall(chunk)
 	G[HOST_KEY] = nil
