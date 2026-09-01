@@ -1,46 +1,46 @@
 {
-    "schema":  1,
-    "minLoader":  3,
-    "release":  "2026-09-01.5",
-    "revision":  "1d120cf327b1c46c091d642b57904e2a666ccb89",
-    "files":  {
-                  "hub.lua":  {
-                                  "sha256":  "f1cf107e2411ebb5653ada733472db2564e4356c184d9de52787b744354c2414",
-                                  "localName":  "hub.lua"
-                              },
-                  "r3st_ui.lua":  {
-                                      "sha256":  "8007a26b4b6972cf326fb0c9e8fae863860b3f8e5ad7945e876486d397c40e94",
-                                      "localName":  "r3st_ui.lua"
-                                  },
-                  "anims.lua":  {
-                                    "sha256":  "6891de4e1bbdc3f3aa63ec88fa09820a9bc9a0de99c9f7260a17878b09950d4d",
-                                    "localName":  "anims.lua"
-                                },
-                  "telemetry.lua":  {
-                                        "sha256":  "14b5d3057196696c4b8055855bc7244d949e4b9a6093bcdf9976c6e24a08bdac",
-                                        "localName":  "resthub_telemetry.lua"
-                                    },
-                  "games/blr_hub.lua":  {
-                                            "sha256":  "ee98a0e685596aec2d4071d6a89d9cafcae74f5b4f80a19ae93bec179391889e",
-                                            "localName":  "blr_hub.lua"
-                                        },
-                  "games/gd2.lua":  {
-                                        "sha256":  "678cc147a4a539eb9f212821e0b7d9d202728633efae88b9671360250758de6a",
-                                        "localName":  "gd2.lua"
-                                    }
-              },
-    "modules":  [
-                    {
-                        "id":  "blue-lock-rivals",
-                        "gameId":  6325068386,
-                        "placeId":  18668065416,
-                        "path":  "games/blr_hub.lua"
-                    },
-                    {
-                        "id":  "ghost-driver",
-                        "gameId":  10173311467,
-                        "placeId":  137228775845999,
-                        "path":  "games/gd2.lua"
-                    }
-                ]
+    "schema": 1,
+    "minLoader": 3,
+    "release": "2026-09-01.5",
+    "revision": "1d120cf327b1c46c091d642b57904e2a666ccb89",
+    "files": {
+        "hub.lua": {
+            "sha256": "f1cf107e2411ebb5653ada733472db2564e4356c184d9de52787b744354c2414",
+            "localName": "hub.lua"
+        },
+        "r3st_ui.lua": {
+            "sha256": "8007a26b4b6972cf326fb0c9e8fae863860b3f8e5ad7945e876486d397c40e94",
+            "localName": "r3st_ui.lua"
+        },
+        "anims.lua": {
+            "sha256": "6891de4e1bbdc3f3aa63ec88fa09820a9bc9a0de99c9f7260a17878b09950d4d",
+            "localName": "anims.lua"
+        },
+        "telemetry.lua": {
+            "sha256": "14b5d3057196696c4b8055855bc7244d949e4b9a6093bcdf9976c6e24a08bdac",
+            "localName": "resthub_telemetry.lua"
+        },
+        "games/blr_hub.lua": {
+            "sha256": "ee98a0e685596aec2d4071d6a89d9cafcae74f5b4f80a19ae93bec179391889e",
+            "localName": "blr_hub.lua"
+        },
+        "games/gd2.lua": {
+            "sha256": "360f7c4ef16388be2736393ddddab8ba9a103d4108e3783c4bc3775a10318830",
+            "localName": "gd2.lua"
+        }
+    },
+    "modules": [
+        {
+            "id": "blue-lock-rivals",
+            "gameId": 6325068386,
+            "placeId": 18668065416,
+            "path": "games/blr_hub.lua"
+        },
+        {
+            "id": "ghost-driver",
+            "gameId": 10173311467,
+            "placeId": 137228775845999,
+            "path": "games/gd2.lua"
+        }
+    ]
 }
