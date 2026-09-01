@@ -1,17 +1,21 @@
 {
     "schema":  1,
-    "minLoader":  2,
-    "release":  "2026-09-01.3",
-    "revision":  "57b098c2590b117bffc63e3618245749e0567264",
+    "minLoader":  3,
+    "release":  "2026-09-01.4",
+    "revision":  "a2ab960e9167b48ee6d68e171afed0d330ee6d60",
     "files":  {
                   "hub.lua":  {
-                                  "sha256":  "57706ed04c132b93f1cbd8443c7bfebc56a767214ed317a62bed560abb92f3aa",
+                                  "sha256":  "f1cf107e2411ebb5653ada733472db2564e4356c184d9de52787b744354c2414",
                                   "localName":  "hub.lua"
                               },
                   "r3st_ui.lua":  {
                                       "sha256":  "8007a26b4b6972cf326fb0c9e8fae863860b3f8e5ad7945e876486d397c40e94",
                                       "localName":  "r3st_ui.lua"
                                   },
+                  "anims.lua":  {
+                                    "sha256":  "a6166651564bdcf783827914841d0c6df10c9069c267369c24a1725ca5fea947",
+                                    "localName":  "anims.lua"
+                                },
                   "telemetry.lua":  {
                                         "sha256":  "14b5d3057196696c4b8055855bc7244d949e4b9a6093bcdf9976c6e24a08bdac",
                                         "localName":  "resthub_telemetry.lua"
