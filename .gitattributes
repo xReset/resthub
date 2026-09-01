@@ -1,0 +1,10 @@
+# The manifest pins SHA-256 of the bytes raw.githubusercontent serves, which are
+# always LF. Without this, git checks out CRLF working copies, sync-from-potassium
+# hashes THOSE, and every user fails verification on any file the sync did not
+# freshly copy from the canonical repo. gate.ps1 cannot catch it: it hashes the
+# same working copy the sync did.
+* -text
+*.lua text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.ps1 text eol=lf
