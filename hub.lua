@@ -1,7 +1,9 @@
--- R3ST Hub v2026-09-01.15 (2026-09-01)
+-- R3ST Hub v2026-09-01.16 (2026-09-01)
 -- Rung 2 (client-created UI only). Server sees: nothing; no game state or remotes touched.
 -- Re-inject safe: self-teardown on load; RightShift = show/hide; K = unload.
 -- Changelog:
+--   .16 handle RightShift before the gameProcessed gate so games that consume
+--      Shift cannot block the Hub show/hide bind.
 --   .15 Anims is a persistent controller, not the active game module. Route
 --      changes and GD2 reloads detach only its panel; explicit Anims OFF owns
 --      restore. Returning to Anims remounts the existing controller.
@@ -73,7 +75,7 @@
 --   the moment the chunk returns, so nothing leaks into a later inject.
 --   Embedded today: gd2.lua, blr_hub.lua, anims.lua.
 
-local BUILD_VERSION = "2026-09-01.15"
+local BUILD_VERSION = "2026-09-01.16"
 local GKEY = "__R3ST_HUB"
 local HOST_KEY = "__R3ST_HOST"
 local CONFIG_FILE = "rbx_hub_template_config.json"
@@ -1185,13 +1187,13 @@ connect(UIS.InputEnded, function(i)
 	end
 end)
 connect(UIS.InputBegan, function(i, gp)
-	if gp then return end
 	if i.KeyCode == Enum.KeyCode.RightShift then
 		screen.Enabled = not screen.Enabled
 		blur.Enabled = screen.Enabled
-	elseif i.KeyCode == Enum.KeyCode.K then
-		destroy()
+		return
 	end
+	if gp then return end
+	if i.KeyCode == Enum.KeyCode.K then destroy() end
 end)
 
 setPage(state.page)
