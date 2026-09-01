@@ -1,23 +1,23 @@
 {
     "schema":  1,
     "minLoader":  3,
-    "release":  "2026-09-01.1232",
-    "revision":  "d5295f6df95baf61bef1b264398675f81650c5af",
+    "release":  "2026-09-01.1247",
+    "revision":  "PENDING",
     "files":  {
                   "hub.lua":  {
-                                  "sha256":  "de546f60d20d2e0af4035b985092bd4212703502fabe02d01ec5f3abda026687",
+                                  "sha256":  "5b41dd3c51b1f6afdb7e52538e0d4e6fedce28de5f83fa121cf0ac1d41dc9418",
                                   "localName":  "hub.lua"
                               },
                   "r3st_ui.lua":  {
-                                      "sha256":  "faf2c71d3a4f5afe7d077b4b20129343b14a05f4adffb1cc83a38ff86a9f4bdf",
+                                      "sha256":  "47c143eb420cc1ca7034b4e9a7e5feda8b9cbdd9c89335464e3131c5d84fced5",
                                       "localName":  "r3st_ui.lua"
                                   },
                   "anims.lua":  {
-                                    "sha256":  "6891de4e1bbdc3f3aa63ec88fa09820a9bc9a0de99c9f7260a17878b09950d4d",
+                                    "sha256":  "06cba43e53a8d15ffe4ea27be99876094bb305319f360bf18a82099a609fd7ba",
                                     "localName":  "anims.lua"
                                 },
                   "telemetry.lua":  {
-                                        "sha256":  "7a11eae7bdc1d581f1b8e7816734fd516fa4673e1094f9584d2f8cd92957513d",
+                                        "sha256":  "14b5d3057196696c4b8055855bc7244d949e4b9a6093bcdf9976c6e24a08bdac",
                                         "localName":  "resthub_telemetry.lua"
                                     },
                   "games/blr_hub.lua":  {

@@ -36,30 +36,185 @@
 -- template must never mean rewriting a proven page of controls.
 
 local Kit = {}
-Kit.VERSION = "2026-09-01.2"
+Kit.VERSION = "2026-09-01.3"
 
 local UserInputService = game:GetService("UserInputService")
 local MarketplaceService = game:GetService("MarketplaceService")
+local TweenService = game:GetService("TweenService")
 
+--==========================================================================
+-- TOKENS -- the one palette, type scale and spacing grid (hub skill S3)
+--
+-- WHY: on 2026-09-01 there were FOUR palettes on screen at once -- hub.lua's
+-- own `C`, this table, gd2.lua:3425 and anims.lua:269 -- and two different
+-- greys called `dim` (165,167,172 and 146,146,158) sat side by side in the same
+-- window. Nobody could name why, which is exactly what makes a product read as
+-- assembled rather than designed. Every surface consumes these now.
+--
+-- Monochrome on purpose. The accent is WHITE, and focus comes from elevation
+-- and stroke brightness, not hue. `good` is the one chromatic token and it means
+-- exactly one thing: this is live/ready/active.
+--
+-- ELEVATION LADDER -- each step is a real, visible lift off the one below:
+--   bg(7)  window ground  <  panel(13)  sidebar/content  <  card(17)  <  row(24)
+-- hub.lua used to paint panel with bg, so the sidebar and content had no edge
+-- against the window at all. That flatness is most of why the shell looked unfinished.
+--==========================================================================
 Kit.COL = {
 	bg = Color3.fromRGB(7, 7, 9),
 	panel = Color3.fromRGB(13, 13, 16),
 	card = Color3.fromRGB(17, 17, 21),
 	row = Color3.fromRGB(24, 24, 29),
+	rowHover = Color3.fromRGB(31, 31, 37),
 	line = Color3.fromRGB(42, 42, 50),
+	lineSoft = Color3.fromRGB(30, 30, 36),
 	text = Color3.fromRGB(240, 240, 245),
 	dim = Color3.fromRGB(146, 146, 158),
+	faint = Color3.fromRGB(104, 104, 116),
 	white = Color3.fromRGB(255, 255, 255),
 	good = Color3.fromRGB(72, 205, 57),
 	bad = Color3.fromRGB(255, 120, 120),
 	knobOff = Color3.fromRGB(120, 120, 132),
 }
+-- Aliases so hub.lua's historic names resolve to the SAME colour instead of a
+-- near-miss of it. Adding names is safe; renaming would break gd2/blr mid-port.
+Kit.COL.raised = Kit.COL.card
+Kit.COL.hover = Kit.COL.row
+Kit.COL.green = Kit.COL.good
 local COL = Kit.COL
+
+-- Five sizes, not ten. Screenshot audit found 10/11/12/13/14/15/18/19/22/24 in
+-- use across hub.lua alone; a scale nobody can recite is a scale nobody applies.
+Kit.TYPE = { micro = 10, small = 11, body = 13, head = 15, title = 22 }
+
+-- 4px grid. Every offset in new layout code is one of these.
+Kit.SPACE = { xs = 4, sm = 8, md = 12, lg = 16, xl = 24, xxl = 32 }
+
+--==========================================================================
+-- MOTION
+--
+-- Before 2026-09-01 the entire product -- hub, kit, gd2, blr, anims, admin --
+-- contained zero TweenService calls. Everything snapped. That single fact was
+-- most of the "not premium" feeling.
+--
+-- Restrained on purpose: opacity, position and scale only, ease-OUT only, and
+-- no bounce/elastic/spring anywhere. Overshoot is the vibecoded tell -- real
+-- tools decelerate into place and stop. Durations are short enough that daily
+-- use never waits on them.
+--
+-- Kit.reduceMotion = true makes every helper below apply the final value
+-- instantly, so the setting is honoured without a branch at each call site.
+--==========================================================================
+Kit.MOTION = { fast = 0.10, base = 0.14, slow = 0.20 }
+Kit.reduceMotion = false
+
+local EASE_OUT = Enum.EasingStyle.Quad
+local EASE_DIR = Enum.EasingDirection.Out
+
+-- Returns the Tween so a caller can wait on Completed; nil when motion is off.
+function Kit.tween(obj, props, dur, style)
+	if typeof(obj) ~= "Instance" then return nil end
+	if Kit.reduceMotion or dur == 0 then
+		for k, v in pairs(props) do
+			pcall(function() obj[k] = v end)
+		end
+		return nil
+	end
+	local info = TweenInfo.new(dur or Kit.MOTION.base, style or EASE_OUT, EASE_DIR)
+	local t = TweenService:Create(obj, info, props)
+	t:Play()
+	return t
+end
+local tween = Kit.tween
+
+-- Window/panel open: fade + a small scale lift. 0.96 not 0.8 -- a big scale jump
+-- reads as a cartoon, a small one reads as weight.
+function Kit.appear(frame, scaleObj, done)
+	if Kit.reduceMotion then
+		frame.Visible = true
+		if scaleObj then scaleObj.Scale = scaleObj:GetAttribute("R3ST_TargetScale") or scaleObj.Scale end
+		if done then done() end
+		return
+	end
+	local target = scaleObj and (scaleObj:GetAttribute("R3ST_TargetScale") or scaleObj.Scale) or 1
+	frame.Visible = true
+	if scaleObj then scaleObj.Scale = target * 0.96 end
+	local t = tween(frame, { BackgroundTransparency = frame:GetAttribute("R3ST_BaseTransparency") or 0 }, Kit.MOTION.base)
+	if scaleObj then tween(scaleObj, { Scale = target }, Kit.MOTION.base) end
+	if done then
+		if t then t.Completed:Once(done) else done() end
+	end
+end
+
+-- Close is faster than open: getting out of the way should never feel slow.
+function Kit.vanish(frame, scaleObj, done)
+	if Kit.reduceMotion then
+		frame.Visible = false
+		if done then done() end
+		return
+	end
+	local target = scaleObj and (scaleObj:GetAttribute("R3ST_TargetScale") or scaleObj.Scale) or 1
+	if scaleObj then tween(scaleObj, { Scale = target * 0.97 }, Kit.MOTION.fast) end
+	local t = tween(frame, { BackgroundTransparency = 1 }, Kit.MOTION.fast)
+	local function finish()
+		frame.Visible = false
+		if scaleObj then scaleObj.Scale = target end
+		if done then done() end
+	end
+	if t then t.Completed:Once(finish) else finish() end
+end
+
+-- Page switch: crossfade a CanvasGroup-less Frame by walking nothing -- we just
+-- swap Visible and fade the incoming page's own transparency proxy. Kept at
+-- 90ms because a page switch is navigation, not decoration.
+function Kit.pageIn(frame)
+	frame.Visible = true
+	if Kit.reduceMotion then return end
+	local group = frame:FindFirstChildOfClass("CanvasGroup")
+	if group then
+		group.GroupTransparency = 1
+		tween(group, { GroupTransparency = 0 }, 0.09)
+	end
+end
 
 local function clamp(v, lo, hi)
 	if v < lo then return lo end
 	if v > hi then return hi end
 	return v
+end
+
+-- Hover + PRESSED on any button. Pass the button and its UIStroke. Every button
+-- in the product had a hover colour and nothing else, so the click itself was
+-- never acknowledged -- the cheapest thing that separates a real control from a
+-- coloured rectangle.
+function Kit.interactive(btn, strokeObj, baseColor)
+	local base = baseColor or btn.BackgroundColor3
+	local hoverCol = Kit.COL.rowHover
+	local down = false
+	local inside = false
+	local function paint()
+		local d = Kit.MOTION.fast
+		if strokeObj then
+			Kit.tween(strokeObj, { Color = (inside or down) and Kit.COL.white or Kit.COL.line }, d)
+		end
+		Kit.tween(btn, { BackgroundColor3 = down and Kit.COL.line or (inside and hoverCol or base) }, d)
+	end
+	btn.MouseEnter:Connect(function() inside = true; paint() end)
+	btn.MouseLeave:Connect(function() inside = false; down = false; paint() end)
+	btn.MouseButton1Down:Connect(function() down = true; paint() end)
+	btn.MouseButton1Up:Connect(function() down = false; paint() end)
+	return paint
+end
+
+-- Real text width. W.tabstrip used to size tabs as `14 + #name * 8`, a
+-- character-count guess that clips any tab whose name is wide (or wastes space
+-- on a narrow one). TextService measures the actual font.
+function Kit.textWidth(text, size, font)
+	local ok, v = pcall(function()
+		return game:GetService("TextService"):GetTextSize(
+			text, size, font or Enum.Font.GothamBold, Vector2.new(4000, 100)).X
+	end)
+	return ok and v or (#tostring(text) * size * 0.6)
 end
 
 function Kit.new(cls, props, parent)
@@ -206,6 +361,83 @@ function Kit.host(o)
 	end
 
 	return out
+end
+
+--==========================================================================
+-- Kit.resizeGrip() -- bottom-right drag handle for a fixed-offset window
+--
+-- The hub was a hard 1180x700 with no way to change it, and the only sizing
+-- control that existed (`uiScale`) had no UI at all. A grip is the consistent
+-- answer because Kit.relayout already reflows cards into 1/2/3 columns by
+-- width, so a wider window genuinely gains content instead of stretching.
+--
+--   Kit.resizeGrip(root, { min = Vector2.new(880, 520), onResize = fn,
+--                          onCommit = fn })
+--
+-- Clamps to the viewport so a window can never be dragged bigger than the
+-- screen and lost. onResize fires live (relayout); onCommit fires once on
+-- release (save the size).
+--==========================================================================
+function Kit.resizeGrip(root, o)
+	o = o or {}
+	local minS = o.min or Vector2.new(880, 520)
+	local grip = Kit.new("TextButton", {
+		Name = "R3ST_Resize",
+		AnchorPoint = Vector2.new(1, 1),
+		Position = UDim2.new(1, -2, 1, -2),
+		Size = UDim2.fromOffset(18, 18),
+		BackgroundTransparency = 1,
+		Text = "",
+		AutoButtonColor = false,
+		ZIndex = 50,
+	}, root)
+	-- Three stacked ticks: the conventional grip read, drawn rather than glyphed
+	-- so it cannot land on a font that has no such character.
+	for i = 1, 3 do
+		Kit.new("Frame", {
+			BackgroundColor3 = COL.faint,
+			BorderSizePixel = 0,
+			AnchorPoint = Vector2.new(1, 1),
+			Position = UDim2.new(1, -2, 1, -2 - (i - 1) * 4),
+			Size = UDim2.fromOffset(2 + (3 - i) * 5, 2),
+			ZIndex = 51,
+		}, grip)
+	end
+
+	local dragging, startPos, startSize = false, nil, nil
+	local conns = {}
+	conns[#conns + 1] = grip.InputBegan:Connect(function(i)
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+			dragging = true
+			startPos = i.Position
+			startSize = Vector2.new(root.Size.X.Offset, root.Size.Y.Offset)
+		end
+	end)
+	conns[#conns + 1] = UserInputService.InputChanged:Connect(function(i)
+		if not dragging then return end
+		if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~= Enum.UserInputType.Touch then return end
+		local d = i.Position - startPos
+		local w = startSize.X + d.X
+		local h = startSize.Y + d.Y
+		local cam = workspace.CurrentCamera
+		local maxW, maxH = 4000, 4000
+		if cam then
+			maxW = math.max(minS.X, cam.ViewportSize.X - 24)
+			maxH = math.max(minS.Y, cam.ViewportSize.Y - 24)
+		end
+		w = clamp(w, minS.X, maxW)
+		h = clamp(h, minS.Y, maxH)
+		root.Size = UDim2.fromOffset(w, h)
+		if o.onResize then pcall(o.onResize, w, h) end
+	end)
+	conns[#conns + 1] = UserInputService.InputEnded:Connect(function(i)
+		if not dragging then return end
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+			dragging = false
+			if o.onCommit then pcall(o.onCommit, root.Size.X.Offset, root.Size.Y.Offset) end
+		end
+	end)
+	return grip, conns
 end
 
 --==========================================================================
@@ -474,13 +706,24 @@ function Kit.bind(host)
 			Size = UDim2.fromOffset(18, 18),
 		}, track)
 		corner(knob, 9)
+		-- redraw() is also called every frame by addLive, so it must not restart a
+		-- tween on a value that did not change: `lastOn` is what makes the knob
+		-- animate on a click and stay still otherwise. nil means "first paint" --
+		-- a page opening shows its switches already in position rather than
+		-- playing twenty of them at once.
+		local lastOn = nil
 		local function redraw()
 			local on = get() and true or false
-			knob.Position = UDim2.new(0, on and 25 or 3, 0.5, 0)
-			knob.BackgroundColor3 = on and COL.white or COL.knobOff
-			track.BackgroundColor3 = on and Color3.fromRGB(70, 72, 78) or COL.row
-			st.Color = on and COL.white or COL.line
-			name.TextColor3 = on and COL.text or COL.dim
+			if on == lastOn then return end
+			local d = (lastOn == nil) and 0 or Kit.MOTION.fast
+			lastOn = on
+			tween(knob, {
+				Position = UDim2.new(0, on and 25 or 3, 0.5, 0),
+				BackgroundColor3 = on and COL.white or COL.knobOff,
+			}, d)
+			tween(track, { BackgroundColor3 = on and Color3.fromRGB(70, 72, 78) or COL.row }, d)
+			tween(st, { Color = on and COL.white or COL.line }, d)
+			tween(name, { TextColor3 = on and COL.text or COL.dim }, d)
 		end
 		track.MouseButton1Click:Connect(function()
 			set(not get())
@@ -602,8 +845,9 @@ function Kit.bind(host)
 		}, box)
 		corner(b, 7)
 		local s = stroke(b, COL.line)
-		b.MouseEnter:Connect(function() s.Color = COL.white end)
-		b.MouseLeave:Connect(function() s.Color = COL.line end)
+		-- Hover, and a real PRESSED state. Every button in the product had hover
+		-- only, so nothing on screen ever acknowledged the click itself.
+		Kit.interactive(b, s)
 		b.MouseButton1Click:Connect(function() guard("ui.button." .. tostring(text), fn) end)
 		if desc then
 			local d = label(box, desc, 10, COL.dim, 0, 32, 0, 14)
@@ -706,17 +950,23 @@ function Kit.bind(host)
 		}, parent)
 		local btns = {}
 		local x = 0
+		local painted = false
 		local function paint()
 			local cur = o.get()
+			local d = painted and Kit.MOTION.fast or 0
+			painted = true
 			for name, rec in pairs(btns) do
 				local on = (name == cur)
-				rec.b.BackgroundColor3 = on and COL.white or COL.card
-				rec.b.TextColor3 = on and COL.bg or COL.dim
-				rec.s.Color = on and COL.white or COL.line
+				tween(rec.b, {
+					BackgroundColor3 = on and COL.white or COL.card,
+					TextColor3 = on and COL.bg or COL.dim,
+				}, d)
+				tween(rec.s, { Color = on and COL.white or COL.line }, d)
 			end
 		end
 		for _, name in ipairs(o.names) do
-			local w = math.max(72, 14 + #name * 8)
+			-- Measured, not guessed: `14 + #name * 8` clipped any wide tab name.
+			local w = math.max(72, math.ceil(Kit.textWidth(name, 11)) + 22)
 			local b = new("TextButton", {
 				BackgroundColor3 = COL.card,
 				BorderSizePixel = 0,

@@ -2,6 +2,28 @@
 -- Rung 2 (client-created UI only). Server sees: nothing; no game state or remotes touched.
 -- Re-inject safe: self-teardown on load; RightShift = show/hide; K = unload.
 -- Changelog:
+--   .20 One palette, motion, and a window you can actually resize.
+--      The kit now loads BEFORE the shell (it used to load 350 lines later,
+--      which is why the shell kept a palette of its own), so C is the kit's COL
+--      instead of a near-miss of it: `panel` was pure bg, so the sidebar and
+--      content had no edge against the window at all, and `dim` was 165,167,172
+--      against the kit's 146 -- two greys with one name, side by side.
+--      Adds the first motion in the product: open/close, page crossfade,
+--      minimise, all 100-140ms ease-out, with Settings -> Reduce motion.
+--      uiScale is GONE -- it was loaded, clamped and read by fit() with no
+--      control anywhere in the UI. Replaced by a real drag-resize grip
+--      (Kit.resizeGrip) whose size persists; sidebar/content are scale-anchored
+--      so a resize reflows instead of cropping.
+--      Favorites are keyed by module id, not display name, with a one-time
+--      migration that keeps every existing star (hub skill S5).
+--      applyThumbnail caches per placeId, coalesces duplicate lookups and skips
+--      GetProductInfo entirely when gameId already answered -- was ~50 yielding
+--      web calls at boot plus a fresh burst on every Favorites/Recent rebuild.
+--      A standalone launch no longer destroy()s the hub: the activeEntry page
+--      launched the same module and kept it, so one action had two behaviours.
+--      connections is compacted on row rebuilds instead of growing all session.
+--      About shows LIVE status (mounted module + every build stamp) with copy,
+--      search matches descriptions, and Send report admits it sends the UserId.
 --   .19 Send report. A friend running the public loadstring had no way to get
 --      their logs to us, so every outside bug report was "it doesn't work".
 --      About -> Send report posts the build stamps, place/universe and the tail
@@ -88,7 +110,7 @@
 --   the moment the chunk returns, so nothing leaks into a later inject.
 --   Embedded today: gd2.lua, blr_hub.lua, anims.lua.
 
-local BUILD_VERSION = "2026-09-01.19"
+local BUILD_VERSION = "2026-09-01.20"
 local GKEY = "__R3ST_HUB"
 local HOST_KEY = "__R3ST_HOST"
 local CONFIG_FILE = "rbx_hub_template_config.json"
@@ -110,6 +132,11 @@ local connections = {}
 local screen
 local destroy
 local saveQueued = false
+local favoritesMigrated = false
+-- Declared up here because openGame() reads it and is defined ~40 lines above
+-- the builders that populate it; a `local` declared later is a nil GLOBAL to
+-- everything above it (AGENTS.md ledger: nil forward reference).
+local rowRefresh = {}   -- page name -> function, called when favorites change
 local launchToast
 local Log
 local C
@@ -163,12 +190,65 @@ local function hubLog(level, message)
 	end)
 end
 
-C = {
-	bg = Color3.fromRGB(7, 7, 9), panel = Color3.fromRGB(7, 7, 9), raised = Color3.fromRGB(17, 17, 21),
+--==========================================================================
+-- The shared kit, loaded BEFORE the shell (it used to load 350 lines later,
+-- which is why the shell could not use its tokens and kept a palette of its
+-- own). Potassium roots readfile at workspace\ while the user injects from the
+-- Explorer tab, so Explorer is tried first -- see the MODULE_PATHS note at
+-- loadModule's other caller and hub skill S11.
+--==========================================================================
+local MODULE_PATHS = { "../scripts/%s", "%s", "scripts/%s" }
+
+local function loadModule(file)
+	local lastErr
+	for _, pattern in ipairs(MODULE_PATHS) do
+		local path = pattern:format(file)
+		local readOk, src = pcall(readfile, path)
+		if readOk and type(src) == "string" and #src > 0 then
+			local chunk, err = loadstring(src, "=" .. file)
+			if type(chunk) == "function" then
+				hubLog("info", "resolved " .. file .. " -> " .. path .. " (" .. tostring(#src) .. " bytes)")
+				return chunk
+			end
+			lastErr = "compile error in " .. path .. ": " .. tostring(err)
+		end
+	end
+	if lastErr then return nil, lastErr end
+	return nil, "not found in the Potassium Explorer folder (" .. file .. ")"
+end
+
+local UIKit
+do
+	local chunk = loadModule("r3st_ui.lua")
+	if chunk then
+		local ok, kit = pcall(chunk)
+		if ok and type(kit) == "table" then UIKit = kit end
+	end
+	if UIKit then
+		hubLog("info", "ui kit " .. tostring(UIKit.VERSION))
+	else
+		hubLog("warn", "r3st_ui.lua not loadable - hub falls back to its built-in palette")
+	end
+end
+
+-- ONE palette. The hub used to carry its own near-miss of the kit's: `panel`
+-- was pure bg (so the sidebar and content had no edge against the window at
+-- all, which is most of why the shell looked flat) and `dim` was 165,167,172
+-- against the kit's 146,146,158 -- two greys with the same name, side by side.
+-- The literals below are only the fallback for a missing kit.
+C = (UIKit and UIKit.COL) or {
+	bg = Color3.fromRGB(7, 7, 9), panel = Color3.fromRGB(13, 13, 16), raised = Color3.fromRGB(17, 17, 21),
 	hover = Color3.fromRGB(24, 24, 29), line = Color3.fromRGB(42, 42, 50), text = Color3.fromRGB(240, 240, 245),
-	dim = Color3.fromRGB(165, 167, 172), green = Color3.fromRGB(72, 205, 57), white = Color3.fromRGB(250, 250, 250),
-	bad = Color3.fromRGB(255, 120, 120),
+	dim = Color3.fromRGB(146, 146, 158), green = Color3.fromRGB(72, 205, 57), white = Color3.fromRGB(255, 255, 255),
+	bad = Color3.fromRGB(255, 120, 120), faint = Color3.fromRGB(104, 104, 116),
+	rowHover = Color3.fromRGB(31, 31, 37),
 }
+local MOTION = (UIKit and UIKit.MOTION) or { fast = 0.10, base = 0.14, slow = 0.20 }
+local function tween(obj, props, dur)
+	if UIKit and UIKit.tween then return UIKit.tween(obj, props, dur) end
+	for k, v in pairs(props) do pcall(function() obj[k] = v end) end
+	return nil
+end
 
 local function setLaunchToast(text, isError)
 	if not launchToast or not launchToast.Parent then return end
@@ -183,17 +263,35 @@ state = {
 	selectedGame = "Ghost Driver",
 	windowX = 0,
 	windowY = 0,
+	-- Real window size, drag-resized from the corner grip. Replaces `uiScale`,
+	-- which was loaded, clamped and read by fit() but had no control anywhere in
+	-- the UI -- unreachable state pretending to be a setting.
+	windowW = 1180,
+	windowH = 700,
 	theme = "Midnight",
-	uiScale = 100,
 	blur = 5,
 	autosave = true,
 	autoOpen = true,
+	reduceMotion = false,
 }
 
 local function connect(signal, fn)
 	local c = signal:Connect(fn)
 	connections[#connections + 1] = c
 	return c
+end
+
+-- Favorites and Recent rebuild their rows by destroying and recreating them, and
+-- every row wires ~5 connections. Destroying the Instance drops the connection
+-- but NOT our reference to it, so `connections` grew all session and teardown
+-- walked a list that was mostly dead entries. Compact it on each rebuild.
+local function pruneConnections()
+	local kept = {}
+	for _, c in ipairs(connections) do
+		local ok, live = pcall(function() return c.Connected end)
+		if not ok or live then kept[#kept + 1] = c end
+	end
+	connections = kept
 end
 
 --==========================================================================
@@ -329,7 +427,6 @@ local function loadConfig()
 	if not ok then return end
 	local decodedOk, saved = pcall(HttpService.JSONDecode, HttpService, raw)
 	if not decodedOk or type(saved) ~= "table" then return end
-	if type(saved.favorites) == "table" then state.favorites = saved.favorites end
 	if type(saved.recent) == "table" then
 		for _, id in ipairs(saved.recent) do
 			if type(id) == "string" then state.recent[#state.recent + 1] = id end
@@ -340,9 +437,31 @@ local function loadConfig()
 	if type(saved.windowX) == "number" then state.windowX = saved.windowX end
 	if type(saved.windowY) == "number" then state.windowY = saved.windowY end
 	if saved.theme == "Midnight" or saved.theme == "Slate" or saved.theme == "Carbon" then state.theme = saved.theme end
-	if type(saved.uiScale) == "number" then state.uiScale = math.clamp(saved.uiScale, 75, 115) end
+	if type(saved.windowW) == "number" then state.windowW = math.clamp(saved.windowW, 900, 4000) end
+	if type(saved.windowH) == "number" then state.windowH = math.clamp(saved.windowH, 540, 4000) end
 	if type(saved.blur) == "number" then state.blur = math.clamp(saved.blur, 0, 12) end
 	if type(saved.autosave) == "boolean" then state.autosave = saved.autosave end
+	if type(saved.reduceMotion) == "boolean" then state.reduceMotion = saved.reduceMotion end
+	-- Favorites used to be keyed by DISPLAY NAME while `recent` was keyed by id,
+	-- so renaming a game silently dropped its star (hub skill S5 says key by
+	-- stable module id). Migrate name keys to ids once, keeping every star.
+	if type(saved.favorites) == "table" then
+		local migrated, changed = {}, false
+		local byName = {}
+		for _, e in ipairs(REGISTRY) do byName[e.name] = e.id end
+		for key, value in pairs(saved.favorites) do
+			if value then
+				local id = byName[key]
+				if id then migrated[id] = true; changed = true else migrated[key] = true end
+			end
+		end
+		state.favorites = migrated
+		-- NOT saveConfig() here: it is declared BELOW loadConfig, so calling it
+		-- from this scope resolves to a nil global instead of the function -- the
+		-- exact forward-reference class in the AGENTS.md ledger. The migration is
+		-- in memory; the first ordinary save writes it.
+		favoritesMigrated = changed
+	end
 end
 
 local function saveConfig(force)
@@ -358,6 +477,10 @@ local function saveConfig(force)
 end
 
 loadConfig()
+if favoritesMigrated then saveConfig(true) end
+-- Apply the saved motion preference to the kit BEFORE any widget is built, so
+-- the first paint already honours it instead of easing once and then stopping.
+if UIKit then UIKit.reduceMotion = state.reduceMotion == true end
 -- The identity-matched module is the product entry point, not a second click.
 -- Foreign modules still fail closed before this policy is evaluated.
 state.autoOpen = true
@@ -403,8 +526,18 @@ local function divider(parent, y) mk("Frame", { Size=UDim2.new(1,-24,0,1), Posit
 --==========================================================================
 -- Shell
 --==========================================================================
-local W, H = 1180, 700
-local SIDEBAR_W, CONTENT_W, BODY_H = 170, 974, 624
+-- Default size, not fixed size. The window is drag-resizable from the grip in
+-- its bottom-right corner and remembers what it was left at; the old build was
+-- a hard 1180x700 whose only sizing control (`uiScale`) had no UI anywhere, so
+-- it was unreachable state pretending to be a setting. uiScale is gone.
+local W_DEFAULT, H_DEFAULT = 1180, 700
+local MIN_W, MIN_H = 900, 540
+local SIDEBAR_W, HEADER_H = 170, 64
+local W = math.max(MIN_W, math.floor(tonumber(state.windowW) or W_DEFAULT))
+local H = math.max(MIN_H, math.floor(tonumber(state.windowH) or H_DEFAULT))
+-- Kept for the host contract's fallback dimensions only; the real host frame is
+-- measured from AbsoluteSize.
+local CONTENT_W, BODY_H = W - SIDEBAR_W - 36, H - HEADER_H - 12
 
 local core = CoreGui
 if type(cloneref) == "function" then local ok, copy = pcall(cloneref, core); if ok and copy then core = copy end end
@@ -417,12 +550,17 @@ local shade = mk("Frame", { Size=UDim2.fromScale(1,1), BackgroundTransparency=1,
 root = mk("Frame", { AnchorPoint=Vector2.new(.5,.5), Position=UDim2.new(.5,state.windowX,.5,state.windowY), Size=UDim2.fromOffset(W,H),
 	BackgroundColor3=C.bg, BorderSizePixel=0, ClipsDescendants=true }, shade)
 round(root, 12); stroke(root)
-local scale = mk("UIScale", { Scale=state.uiScale/100 }, root)
+-- Clamp to the viewport so a remembered size from a bigger screen can never
+-- leave the window larger than the display and unreachable.
 local function fit()
 	local cam = workspace.CurrentCamera
 	if not cam then return end
 	local v = cam.ViewportSize
-	scale.Scale = math.min(state.uiScale/100, (v.X-24)/W, (v.Y-24)/H)
+	local w = math.clamp(root.Size.X.Offset, MIN_W, math.max(MIN_W, v.X - 24))
+	local h = math.clamp(root.Size.Y.Offset, MIN_H, math.max(MIN_H, v.Y - 24))
+	if w ~= root.Size.X.Offset or h ~= root.Size.Y.Offset then
+		root.Size = UDim2.fromOffset(w, h)
+	end
 end
 fit()
 if workspace.CurrentCamera then connect(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"), fit) end
@@ -436,13 +574,26 @@ label(header, activeEntry and ("|   " .. activeEntry.name) or "|   unsupported p
 local minimize = button(header,"—",UDim2.fromOffset(38,34),UDim2.new(1,-94,0,15))
 local close = button(header,"×",UDim2.fromOffset(38,34),UDim2.new(1,-48,0,15)); close.TextSize=26
 
-sidebar = mk("Frame", { Position=UDim2.fromOffset(12,64), Size=UDim2.fromOffset(SIDEBAR_W,BODY_H), BackgroundColor3=C.panel, BorderSizePixel=0 }, root); round(sidebar,10); stroke(sidebar)
-content = mk("Frame", { Position=UDim2.fromOffset(12+SIDEBAR_W+12,64), Size=UDim2.fromOffset(CONTENT_W,BODY_H), BackgroundColor3=C.panel, BorderSizePixel=0, ClipsDescendants=true }, root); round(content,10); stroke(content)
+-- Sidebar keeps a fixed width; content takes the rest. Both are anchored in
+-- SCALE vertically so a drag-resize reflows instead of cropping.
+sidebar = mk("Frame", { Position=UDim2.fromOffset(12,HEADER_H), Size=UDim2.new(0,SIDEBAR_W,1,-(HEADER_H+12)),
+	BackgroundColor3=C.panel, BorderSizePixel=0 }, root); round(sidebar,10); stroke(sidebar)
+content = mk("Frame", { Position=UDim2.fromOffset(12+SIDEBAR_W+12,HEADER_H), Size=UDim2.new(1,-(SIDEBAR_W+36),1,-(HEADER_H+12)),
+	BackgroundColor3=C.panel, BorderSizePixel=0, ClipsDescendants=true }, root); round(content,10); stroke(content)
 
 setPage = function(name)
 	if not pages[name] then name = "Home" end
+	local changed = state.page ~= name
 	state.page = name
-	for k,p in pairs(pages) do p.Visible = (k == name) end
+	for k,p in pairs(pages) do
+		local on = (k == name)
+		if on and changed and UIKit and UIKit.pageIn then
+			UIKit.pageIn(p)
+		else
+			p.Visible = on
+		end
+		if not on then p.Visible = false end
+	end
 	for k,b in pairs(navButtons) do
 		b.BackgroundColor3 = k == name and C.hover or C.panel
 		b.TextColor3 = k == name and C.text or C.dim
@@ -453,14 +604,46 @@ end
 --==========================================================================
 -- Artwork
 --==========================================================================
+-- placeId -> "rbxassetid://n", or false once we know the lookup is useless.
+-- GetProductInfo is a yielding, rate-limited web call and the old version fired
+-- one PER CARD with no cache and no skip: 25 featured cards + 25 list rows = ~50
+-- calls at boot, plus a fresh burst every time Favorites or Recent rebuilt its
+-- rows. That is the stutter on open.
+local thumbCache = {}
+local thumbInFlight = {}
+
 local function applyThumbnail(imageObj, entry)
+	-- The universe id already gives a correct icon with no web call at all, so
+	-- when we have one the Marketplace fallback is pure waste.
 	if entry.gameId then
 		imageObj.Image = "rbxthumb://type=GameIcon&id=" .. tostring(entry.gameId) .. "&w=150&h=150"
+		return
 	end
+	local id = entry.placeId
+	if not id then return end
+	local cached = thumbCache[id]
+	if cached then
+		imageObj.Image = cached
+		return
+	end
+	if cached == false then return end -- looked up already, nothing usable
+	-- Coalesce: many cards want the same place, and only the first should ask.
+	local waiters = thumbInFlight[id]
+	if waiters then
+		waiters[#waiters + 1] = imageObj
+		return
+	end
+	thumbInFlight[id] = { imageObj }
 	task.spawn(function()
-		local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, entry.placeId)
-		if ok and type(info) == "table" and tonumber(info.IconImageAssetId) and tonumber(info.IconImageAssetId) > 0 and imageObj.Parent then
-			imageObj.Image = "rbxassetid://" .. tostring(info.IconImageAssetId)
+		local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, id)
+		local asset = ok and type(info) == "table" and tonumber(info.IconImageAssetId)
+		local value = (asset and asset > 0) and ("rbxassetid://" .. tostring(asset)) or false
+		thumbCache[id] = value
+		local list = thumbInFlight[id]
+		thumbInFlight[id] = nil
+		if not value or not list then return end
+		for _, obj in ipairs(list) do
+			if obj.Parent then obj.Image = value end
 		end
 	end)
 end
@@ -476,45 +659,6 @@ end
 -- exist at all -- and where the ones that do are stale leftovers. That is what
 -- made Ghost Driver report "missing" while a v.9 anims.lua loaded and opened its
 -- own window. The Explorer folder is checked first, every time.
-local MODULE_PATHS = { "../scripts/%s", "%s", "scripts/%s" }
-
-local function loadModule(file)
-	local lastErr
-	for _, pattern in ipairs(MODULE_PATHS) do
-		local path = pattern:format(file)
-		local readOk, src = pcall(readfile, path)
-		if readOk and type(src) == "string" and #src > 0 then
-			local chunk, err = loadstring(src, "=" .. file)
-			if type(chunk) == "function" then
-				hubLog("info", "resolved " .. file .. " -> " .. path .. " (" .. tostring(#src) .. " bytes)")
-				return chunk
-			end
-			lastErr = "compile error in " .. path .. ": " .. tostring(err)
-		end
-	end
-	if lastErr then return nil, lastErr end
-	return nil, "not found in the Potassium Explorer folder (" .. file .. ")"
-end
-
--- The shared control template. Loaded once here and handed to every module on
--- the host contract, so an embedded module never reads the file itself and the
--- whole hub is guaranteed to be running ONE version of the widgets.
-local UIKit
-do
-	local chunk = loadModule("r3st_ui.lua")
-	if chunk then
-		local ok, kit = pcall(chunk)
-		if ok and type(kit) == "table" then
-			UIKit = kit
-		end
-	end
-	if UIKit then
-		hubLog("info", "ui kit " .. tostring(UIKit.VERSION))
-	else
-		hubLog("warn", "r3st_ui.lua not loadable - modules fall back to their own widgets")
-	end
-end
-
 local function unmountActive()
 	if not mountedModule then return end
 	local handle = G[mountedModule.gkey]
@@ -597,7 +741,13 @@ local function openGame(entry)
 		setLaunchToast(entry.name .. ": " .. tostring(err), true)
 		return false
 	end
-	destroy()
+	-- The hub used to destroy() itself here, so launching any un-ported module
+	-- cost you the hub -- and the activeEntry page below launches the SAME module
+	-- and keeps it. Two behaviours for one action, decided by which button you
+	-- pressed. The hub now stays; the module owns its own window, and RightShift
+	-- still hides the hub if it is in the way.
+	setLaunchToast(entry.name .. " opened in its own window — RightShift hides the hub", false)
+	if rowRefresh.Recent then rowRefresh.Recent() end
 	return true
 end
 
@@ -617,8 +767,6 @@ end
 --==========================================================================
 -- Shared row / card builders
 --==========================================================================
-local rowRefresh = {}   -- page name -> function, called when favorites change
-
 local function makeGameRow(parent, entry, y, width)
 	local ready = canLaunch(entry)
 	local row = mk("Frame", { Size=UDim2.new(1,width or 0,0,40), Position=UDim2.fromOffset(0,y), BackgroundColor3=C.raised, BorderSizePixel=0 }, parent)
@@ -633,7 +781,7 @@ local function makeGameRow(parent, entry, y, width)
 		ready and C.green or C.dim).Active = false
 	label(row, entry.desc or "", UDim2.fromOffset(300,24), UDim2.fromOffset(500,8), 11, C.dim).Active = false
 
-	local fav = button(row, state.favorites[entry.name] and "★" or "☆", UDim2.fromOffset(34,30), UDim2.new(1,-78,0,5))
+	local fav = button(row, state.favorites[entry.id] and "★" or "☆", UDim2.fromOffset(34,30), UDim2.new(1,-78,0,5))
 	fav.TextSize = 18; fav.ZIndex = 3
 	local play = button(row, ready and "▶" or "—", UDim2.fromOffset(52,30), UDim2.new(1,-46,0,5))
 	play.ZIndex = 3
@@ -642,8 +790,8 @@ local function makeGameRow(parent, entry, y, width)
 		AutoButtonColor=false, ZIndex=1 }, row)
 
 	local function toggleFav()
-		state.favorites[entry.name] = (not state.favorites[entry.name]) or nil
-		fav.Text = state.favorites[entry.name] and "★" or "☆"
+		state.favorites[entry.id] = (not state.favorites[entry.id]) or nil
+		fav.Text = state.favorites[entry.id] and "★" or "☆"
 		saveConfig(true)
 		if rowRefresh.Favorites then rowRefresh.Favorites() end
 	end
@@ -702,7 +850,7 @@ do
 	local seen = {}
 	local function push(entry) if entry and not seen[entry.id] then seen[entry.id] = true; featuredOrder[#featuredOrder+1] = entry end end
 	push(activeEntry)
-	for _, e in ipairs(REGISTRY) do if state.favorites[e.name] then push(e) end end
+	for _, e in ipairs(REGISTRY) do if state.favorites[e.id] then push(e) end end
 	for _, e in ipairs(REGISTRY) do push(e) end
 end
 
@@ -748,6 +896,7 @@ connect(search:GetPropertyChangedSignal("Text"), function()
 		local row = gameRows[entry.name]
 		local hit = q == "" or string.find(string.lower(entry.name), q, 1, true) ~= nil
 			or string.find(string.lower(entry.cat or ""), q, 1, true) ~= nil
+			or string.find(string.lower(entry.desc or ""), q, 1, true) ~= nil
 		row.Visible = hit
 		if hit then row.Position = UDim2.fromOffset(0, y); y += 44 end
 	end
@@ -764,9 +913,10 @@ label(favPage, "Starred from the Home browser. The star persists in the hub conf
 local favList = scrollList(favPage, UDim2.fromOffset(24,96), UDim2.new(1,-48,1,-120))
 rowRefresh.Favorites = function()
 	for _, child in ipairs(favList:GetChildren()) do child:Destroy() end
+	pruneConnections()
 	local y = 0
 	for _, entry in ipairs(REGISTRY) do
-		if state.favorites[entry.name] then
+		if state.favorites[entry.id] then
 			makeGameRow(favList, entry, y, -8)
 			y += 44
 		end
@@ -789,6 +939,7 @@ label(recentPage, "The last 8 modules this hub actually loaded, newest first.",
 local recentList = scrollList(recentPage, UDim2.fromOffset(24,96), UDim2.new(1,-48,1,-160))
 local function refreshRecent()
 	for _, child in ipairs(recentList:GetChildren()) do child:Destroy() end
+	pruneConnections()
 	local y = 0
 	for _, id in ipairs(state.recent) do
 		local entry = entryById[id]
@@ -960,14 +1111,21 @@ local function alterBlur(d)
 end
 connect(blurDown.Activated,function()alterBlur(-1)end)
 connect(blurUp.Activated,function()alterBlur(1)end)
-label(settingsCard,"CONFIGURATION",UDim2.fromOffset(300,22),UDim2.fromOffset(16,132),11,C.dim,true)
-settingToggle("Autosave", function() return state.autosave end, function(v) state.autosave = v end, 160)
-label(settingsCard, "Applies to the hub and to every module it loads — each keeps its own config file.",
-	UDim2.fromOffset(700,20), UDim2.fromOffset(16,190), 11, C.dim)
-label(settingsCard, "Matching game modules open automatically on every inject.",
-	UDim2.fromOffset(700,20), UDim2.fromOffset(16,222), 11, C.dim)
+settingToggle("Reduce motion", function() return state.reduceMotion == true end, function(v)
+	state.reduceMotion = v
+	if UIKit then UIKit.reduceMotion = v end
+end, 116)
+label(settingsCard,"Panels and switches apply instantly instead of easing. Nothing else changes.",
+	UDim2.fromOffset(700,20), UDim2.fromOffset(16,146), 11, C.dim)
 
-local settingY = 262
+label(settingsCard,"CONFIGURATION",UDim2.fromOffset(300,22),UDim2.fromOffset(16,132+46),11,C.dim,true)
+settingToggle("Autosave", function() return state.autosave end, function(v) state.autosave = v end, 160+46)
+label(settingsCard, "Applies to the hub and to every module it loads — each keeps its own config file.",
+	UDim2.fromOffset(700,20), UDim2.fromOffset(16,236), 11, C.dim)
+label(settingsCard, "Matching game modules open automatically on every inject.",
+	UDim2.fromOffset(700,20), UDim2.fromOffset(16,268), 11, C.dim)
+
+local settingY = 308
 local saveNow=button(settingsCard,"Save configuration",UDim2.fromOffset(180,34),UDim2.fromOffset(16,settingY))
 connect(saveNow.Activated,function()
 	saveConfig(true)
@@ -977,10 +1135,12 @@ end)
 local resetUi=button(settingsCard,"Reset hub layout",UDim2.fromOffset(180,34),UDim2.fromOffset(208,settingY))
 connect(resetUi.Activated,function()
 	state.windowX=0; state.windowY=0
+	state.windowW=W_DEFAULT; state.windowH=H_DEFAULT
 	root.Position=UDim2.fromScale(.5,.5)
+	tween(root, { Size = UDim2.fromOffset(W_DEFAULT, H_DEFAULT) }, MOTION.base)
 	saveConfig(true)
 end)
-label(settingsCard,"Reset only moves the hub window; it never touches a module's own config file.",
+label(settingsCard,"Resets the hub window position and size. It never touches a module's own config file.",
 	UDim2.new(1,-32,0,36),UDim2.fromOffset(16,settingY+44),11,C.dim)
 settingsCard.Size = UDim2.new(1,-8,0,settingY+92)
 settingsScroll.CanvasSize = UDim2.fromOffset(0, settingY+100)
@@ -1012,10 +1172,45 @@ do
 	label(about, "Modules stay separate files in git; the hub is one entry point, not one implementation file.",
 		UDim2.new(1,-48,0,20), UDim2.fromOffset(24,y+12), 11, C.dim)
 
+	-- LIVE status, not the boot snapshot above it. hubStatus() already knew every
+	-- mounted module and its build stamp and nothing ever showed it, so About was
+	-- half an empty page while the answer to "which code is actually running"
+	-- sat one function call away.
+	local statusBox = mk("TextLabel", {
+		BackgroundColor3 = C.bg, BorderSizePixel = 0,
+		Position = UDim2.fromOffset(24, y + 40), Size = UDim2.new(1, -48, 0, 108),
+		Font = Enum.Font.Code, TextSize = 11, TextColor3 = C.dim, Text = "",
+		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
+	}, about)
+	round(statusBox, 8); stroke(statusBox); pad(statusBox, 10)
+	local function refreshStatus()
+		local api = G[GKEY]
+		if not (api and type(api.status) == "function") then
+			statusBox.Text = "status unavailable"
+			return
+		end
+		local ok, text = pcall(api.status)
+		statusBox.Text = (ok and tostring(text)) or "status unavailable"
+	end
+	local refreshBtn = button(about, "Refresh status", UDim2.fromOffset(150,30), UDim2.fromOffset(24, y + 156))
+	connect(refreshBtn.Activated, refreshStatus)
+	local copyBtn = button(about, "Copy status", UDim2.fromOffset(140,30), UDim2.fromOffset(184, y + 156))
+	connect(copyBtn.Activated, function()
+		if type(setclipboard) == "function" then
+			pcall(setclipboard, statusBox.Text)
+			copyBtn.Text = "Copied"
+			task.delay(1, function() if alive then copyBtn.Text = "Copy status" end end)
+		else
+			copyBtn.Text = "No clipboard"
+		end
+	end)
+	task.defer(function() if alive then refreshStatus() end end)
+	y = y + 196
+
 	-- Send report (.19). Consent only: nothing leaves this machine unless the
 	-- person here presses this, and the line below says exactly what goes.
 	local send = button(about, "Send report to the developer", UDim2.fromOffset(260,30), UDim2.fromOffset(24, y+42))
-	local result = label(about, "Sends the build stamps, this PlaceId and the tail of your hub/module logs. Nothing else.",
+	local result = label(about, "Sends your Roblox UserId, the build stamps, this PlaceId and the tail of your hub/module logs. Nothing else.",
 		UDim2.new(1,-320,0,30), UDim2.fromOffset(296, y+42), 11, C.dim)
 	result.TextWrapped = true
 	connect(send.Activated, function()
@@ -1066,12 +1261,15 @@ do
 			y += 38
 		end
 	end
-	divider(sidebar, BODY_H - 66)
-	mk("Frame", { Size=UDim2.fromOffset(8,8), Position=UDim2.fromOffset(20,BODY_H-44), BackgroundColor3 = activeEntry and C.green or C.dim,
+	-- Pinned to the BOTTOM of the sidebar in scale, not to a constant, so the
+	-- status block stays on the floor of the panel at any window size.
+	mk("Frame", { Size=UDim2.new(1,-24,0,1), Position=UDim2.new(0,12,1,-66), BackgroundColor3=C.line, BorderSizePixel=0 }, sidebar)
+	local dot = mk("Frame", { Size=UDim2.fromOffset(8,8), Position=UDim2.new(0,20,1,-44), BackgroundColor3 = activeEntry and C.green or C.dim,
 		BorderSizePixel=0 }, sidebar)
-	label(sidebar, activeEntry and "Module ready" or "No module here", UDim2.fromOffset(120,16), UDim2.fromOffset(36,BODY_H-48), 11,
+	round(dot, 4)
+	label(sidebar, activeEntry and "Module ready" or "No module here", UDim2.fromOffset(120,16), UDim2.new(0,36,1,-48), 11,
 		activeEntry and C.green or C.dim)
-	label(sidebar, "build " .. BUILD_VERSION, UDim2.fromOffset(140,16), UDim2.fromOffset(20,BODY_H-26), 10, C.dim)
+	label(sidebar, "build " .. BUILD_VERSION, UDim2.fromOffset(140,16), UDim2.new(0,20,1,-26), 10, C.faint or C.dim)
 end
 
 --==========================================================================
@@ -1292,12 +1490,46 @@ G[GKEY] = {
 	report = sendReport,
 	reportPreview = buildReport,
 }
+--==========================================================================
+-- Resize + motion
+--   The grip lives in the kit so every module window gets the same one. Pages
+--   are rebuilt lazily, so a live resize only has to move the shell; the
+--   two/three-column card grid inside a mounted module reflows through
+--   Kit.relayout on its own next paint.
+--==========================================================================
+if UIKit and UIKit.resizeGrip then
+	UIKit.resizeGrip(root, {
+		min = Vector2.new(MIN_W, MIN_H),
+		onCommit = function(w, h)
+			state.windowW, state.windowH = w, h
+			saveConfig(true)
+		end,
+	})
+end
+
+-- Open animation. root starts hidden and lifts in; without this the hub simply
+-- existed one frame and did not exist the frame before, which is most of what
+-- made the product feel unfinished.
+root.Visible = false
+if UIKit and UIKit.appear then
+	local openScale = mk("UIScale", { Scale = 1 }, root)
+	openScale:SetAttribute("R3ST_TargetScale", 1)
+	UIKit.appear(root, openScale)
+else
+	root.Visible = true
+end
+
 connect(close.Activated, destroy)
+local minimized, restoreH = false, H
 connect(minimize.Activated, function()
-	content.Visible = not content.Visible
-	sidebar.Visible = content.Visible
-	blur.Enabled = content.Visible
-	root.Size = content.Visible and UDim2.fromOffset(W,H) or UDim2.fromOffset(W,64)
+	minimized = not minimized
+	if minimized then
+		restoreH = root.Size.Y.Offset -- the size the user actually left it at
+	end
+	content.Visible = not minimized
+	sidebar.Visible = not minimized
+	blur.Enabled = not minimized
+	tween(root, { Size = UDim2.fromOffset(root.Size.X.Offset, minimized and HEADER_H or restoreH) }, MOTION.base)
 end)
 
 local dragging, dragStart, startPos = false, nil, nil
