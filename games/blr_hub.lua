@@ -1,4 +1,4 @@
--- Blue Lock Rivals Hub v2026-08-31.24 (2026-08-31)
+-- Blue Lock Rivals Hub v2026-09-01.25 (2026-09-01)
 -- PlaceId 18668065416. Dump 2026-08-28T07-29-39Z.
 -- Client limiters, all module-level locals in ReplicatedStorage.Controllers:
 --   BallController (0870) Slide gate `u10 > tick()` :443, set :461-467;
@@ -26,6 +26,10 @@
 -- NoAbilityCD, CFLocker -- are named in the boot log on the "ARMED" line so an
 -- armed feature is never a surprise. P panic clears them all.
 -- Changelog:
+--  .25  CF Locker now treats Select:Fire as pending and stops only after the
+--       CF ObjectValue confirms LocalPlayer. Previously `claimSeat` returned
+--       true on send, so one refused/contested packet ended all retries while
+--       the log misleadingly showed only `fired Select Home CF`.
 --  .24  Per-style tuning profiles, and every power slider now reaches x2.00.
 --       `getCurrentStyle` (0111) is one cached read of
 --       LocalPlayer.PlayerStats.Style.Value, updated from Style.Changed and
@@ -256,7 +260,7 @@
 --       resumes; the remote-firing ones are named in the boot log instead of
 --       being forced OFF (deliberate override of potassium-dev 0.2b).
 
-local BUILD_VERSION = "2026-08-31.24"
+local BUILD_VERSION = "2026-09-01.25"
 local EXPECTED_PLACE = 18668065416
 -- Universe id. A VIP / private server is the SAME experience but the client can
 -- land on a different PlaceId inside it, so a PlaceId-only gate fails closed in
@@ -1162,7 +1166,8 @@ local function claimSeat(teamName, reason)
 		return nil -- team folder not there yet
 	end
 	if seat.Value == LP then
-		return true -- already ours
+		log("lock confirmed: " .. teamName .. " " .. LOCK_ROLE .. " belongs to LocalPlayer")
+		return true
 	end
 	if seat.Value ~= nil then
 		return false, "taken by " .. tostring(seat.Value)
@@ -1184,8 +1189,8 @@ local function claimSeat(teamName, reason)
 		log("lock fire failed: " .. tostring(err))
 		return nil
 	end
-	log("fired Select " .. teamName .. " " .. LOCK_ROLE .. " (" .. reason .. ")")
-	return true
+	log("fired Select " .. teamName .. " " .. LOCK_ROLE .. " (" .. reason .. "); awaiting seat confirmation")
+	return nil -- sent is not success; only seat.Value == LP confirms ownership
 end
 
 local function tryLockCF(reason)
@@ -1233,6 +1238,7 @@ local function runLockAttempt(reason)
 		-- that the frame blue is proven taken is the frame white gets claimed,
 		-- instead of losing white during a 3s sleep as well.
 		local deadline = os.clock() + LOCK_MAX_TRIES * LOCK_RETRY
+		local confirmed = false
 		while os.clock() < deadline do
 			if not (S.alive and CFG.CFLocker) then
 				break
@@ -1241,9 +1247,13 @@ local function runLockAttempt(reason)
 				break -- window closed; do not fire into StartingCutscene
 			end
 			if tryLockCF(reason) then
+				confirmed = true
 				break
 			end
 			task.wait(0.2)
+		end
+		if not confirmed and S.alive and CFG.CFLocker then
+			log("lock ended without confirmed CF ownership (state=" .. tostring(gameState()) .. ")")
 		end
 		S.lockRunning = false
 	end)
