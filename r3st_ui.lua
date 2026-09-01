@@ -36,7 +36,7 @@
 -- template must never mean rewriting a proven page of controls.
 
 local Kit = {}
-Kit.VERSION = "2026-09-01.4"
+Kit.VERSION = "2026-09-01.5"
 
 local UserInputService = game:GetService("UserInputService")
 local MarketplaceService = game:GetService("MarketplaceService")
@@ -55,26 +55,33 @@ local TweenService = game:GetService("TweenService")
 -- and stroke brightness, not hue. `good` is the one chromatic token and it means
 -- exactly one thing: this is live/ready/active.
 --
--- ELEVATION LADDER -- each step is a real, visible lift off the one below:
---   bg(7)  window ground  <  panel(13)  sidebar/content  <  card(17)  <  row(24)
--- hub.lua used to paint panel with bg, so the sidebar and content had no edge
--- against the window at all. That flatness is most of why the shell looked unfinished.
+-- ELEVATION LADDER -- each step must be a VISIBLE lift off the one below.
+--   bg(9) window ground < panel(20) sidebar/content < card(30) < row(40)
+--
+-- The first attempt at this ladder was 7/13/17/24 and the user's verdict was
+-- "UI changes don't seem very noticeable" -- correctly, because steps of 4-6
+-- sRGB values are below the perceptual threshold on a dark surface. Dark UI
+-- needs ~10 values per step to read as a separate plane. Anything tighter is a
+-- ladder in the source and a flat black rectangle on screen.
+--
+-- `line` moved 42 -> 58 for the same reason: at 42 against a 30 card the border
+-- was not defining an edge, so cards had no shape of their own.
 --==========================================================================
 Kit.COL = {
-	bg = Color3.fromRGB(7, 7, 9),
-	panel = Color3.fromRGB(13, 13, 16),
-	card = Color3.fromRGB(17, 17, 21),
-	row = Color3.fromRGB(24, 24, 29),
-	rowHover = Color3.fromRGB(31, 31, 37),
-	line = Color3.fromRGB(42, 42, 50),
-	lineSoft = Color3.fromRGB(30, 30, 36),
-	text = Color3.fromRGB(240, 240, 245),
-	dim = Color3.fromRGB(146, 146, 158),
-	faint = Color3.fromRGB(104, 104, 116),
+	bg = Color3.fromRGB(9, 9, 11),
+	panel = Color3.fromRGB(20, 20, 24),
+	card = Color3.fromRGB(30, 30, 36),
+	row = Color3.fromRGB(40, 40, 48),
+	rowHover = Color3.fromRGB(52, 52, 62),
+	line = Color3.fromRGB(58, 58, 70),
+	lineSoft = Color3.fromRGB(40, 40, 48),
+	text = Color3.fromRGB(242, 242, 247),
+	dim = Color3.fromRGB(152, 152, 164),
+	faint = Color3.fromRGB(110, 110, 122),
 	white = Color3.fromRGB(255, 255, 255),
 	good = Color3.fromRGB(72, 205, 57),
 	bad = Color3.fromRGB(255, 120, 120),
-	knobOff = Color3.fromRGB(120, 120, 132),
+	knobOff = Color3.fromRGB(126, 126, 138),
 }
 -- Aliases so hub.lua's historic names resolve to the SAME colour instead of a
 -- near-miss of it. Adding names is safe; renaming would break gd2/blr mid-port.
@@ -178,14 +185,23 @@ end
 -- Page switch: crossfade a CanvasGroup-less Frame by walking nothing -- we just
 -- swap Visible and fade the incoming page's own transparency proxy. Kept at
 -- 90ms because a page switch is navigation, not decoration.
+-- Page switch. A CanvasGroup fades as one object, which is the whole reason
+-- newPage builds pages as CanvasGroups: the first version looked for a
+-- CanvasGroup CHILD, pages were plain Frames, so every page switch silently did
+-- nothing at all. If a caller still hands us a Frame, slide it instead of
+-- pretending -- a dead animation path is worse than an honest one.
 function Kit.pageIn(frame)
 	frame.Visible = true
 	if Kit.reduceMotion then return end
-	local group = frame:FindFirstChildOfClass("CanvasGroup")
-	if group then
-		group.GroupTransparency = 1
-		tween(group, { GroupTransparency = 0 }, 0.09)
+	if frame:IsA("CanvasGroup") then
+		frame.GroupTransparency = 1
+		frame.Position = UDim2.new(frame.Position.X.Scale, frame.Position.X.Offset, 0, 6)
+		tween(frame, { GroupTransparency = 0, Position = UDim2.new(frame.Position.X.Scale, frame.Position.X.Offset, 0, 0) }, 0.12)
+		return
 	end
+	local base = frame.Position
+	frame.Position = UDim2.new(base.X.Scale, base.X.Offset, base.Y.Scale, base.Y.Offset + 6)
+	tween(frame, { Position = base }, 0.12)
 end
 
 local function clamp(v, lo, hi)

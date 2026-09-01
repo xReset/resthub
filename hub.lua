@@ -110,7 +110,7 @@
 --   the moment the chunk returns, so nothing leaks into a later inject.
 --   Embedded today: gd2.lua, blr_hub.lua, anims.lua.
 
-local BUILD_VERSION = "2026-09-01.20"
+local BUILD_VERSION = "2026-09-01.21"
 local GKEY = "__R3ST_HUB"
 local HOST_KEY = "__R3ST_HOST"
 local CONFIG_FILE = "rbx_hub_template_config.json"
@@ -137,6 +137,7 @@ local favoritesMigrated = false
 -- the builders that populate it; a `local` declared later is a nil GLOBAL to
 -- everything above it (AGENTS.md ledger: nil forward reference).
 local rowRefresh = {}   -- page name -> function, called when favorites change
+local toggleShown       -- show/hide the whole hub, with motion (RightShift)
 local launchToast
 local Log
 local C
@@ -507,7 +508,12 @@ local function mk(class, props, parent)
 	return o
 end
 local function round(o, px) mk("UICorner", { CornerRadius = UDim.new(0, px or 8) }, o) end
-local function stroke(o, transparency) mk("UIStroke", { Color = C.line, Thickness = 1, Transparency = transparency or 0 }, o) end
+-- Returns the UIStroke, not the parent: callers recolour it on hover and press,
+-- and returning the parent silently makes every one of those a no-op (the kit
+-- hit exactly this and its own stroke() carries the same note).
+local function stroke(o, transparency)
+	return mk("UIStroke", { Color = C.line, Thickness = 1, Transparency = transparency or 0 }, o)
+end
 local function pad(o, n) mk("UIPadding", { PaddingTop=UDim.new(0,n), PaddingBottom=UDim.new(0,n), PaddingLeft=UDim.new(0,n), PaddingRight=UDim.new(0,n) }, o) end
 local function label(parent, text, size, pos, fontSize, color, bold)
 	return mk("TextLabel", { BackgroundTransparency=1, Size=size, Position=pos or UDim2.new(), Text=text, TextColor3=color or C.text,
@@ -516,9 +522,19 @@ end
 local function button(parent, text, size, pos)
 	local b = mk("TextButton", { Size=size, Position=pos or UDim2.new(), BackgroundColor3=C.panel, BorderSizePixel=0, AutoButtonColor=false,
 		Text=text, TextColor3=C.text, Font=Enum.Font.GothamMedium, TextSize=13 }, parent)
-	round(b, 7); stroke(b)
-	connect(b.MouseEnter, function() b.BackgroundColor3 = C.hover end)
-	connect(b.MouseLeave, function() b.BackgroundColor3 = C.panel end)
+	round(b, 7)
+	local s = stroke(b)
+	-- Hover AND pressed, both eased. Every button in the hub had an instant
+	-- background swap and no acknowledgement of the click itself.
+	local inside, down = false, false
+	local function paint()
+		tween(b, { BackgroundColor3 = down and C.line or (inside and (C.rowHover or C.hover) or C.panel) }, MOTION.fast)
+		tween(s, { Color = (inside or down) and C.white or C.line }, MOTION.fast)
+	end
+	connect(b.MouseEnter, function() inside = true; paint() end)
+	connect(b.MouseLeave, function() inside = false; down = false; paint() end)
+	connect(b.MouseButton1Down, function() down = true; paint() end)
+	connect(b.MouseButton1Up, function() down = false; paint() end)
 	return b
 end
 local function divider(parent, y) mk("Frame", { Size=UDim2.new(1,-24,0,1), Position=UDim2.fromOffset(12,y), BackgroundColor3=C.line, BorderSizePixel=0 }, parent) end
@@ -595,8 +611,17 @@ setPage = function(name)
 		if not on then p.Visible = false end
 	end
 	for k,b in pairs(navButtons) do
-		b.BackgroundColor3 = k == name and C.hover or C.panel
-		b.TextColor3 = k == name and C.text or C.dim
+		local on = (k == name)
+		tween(b, {
+			BackgroundColor3 = on and C.row or C.panel,
+			TextColor3 = on and C.text or C.dim,
+		}, changed and MOTION.fast or 0)
+		-- A left edge marker on the active row: with a monochrome palette the
+		-- background lift alone is a weak "you are here".
+		local mark = b:FindFirstChild("R3ST_Active")
+		if mark then
+			tween(mark, { Size = UDim2.new(0, 3, 0, on and 18 or 0) }, changed and MOTION.fast or 0)
+		end
 	end
 	saveConfig()
 end
@@ -817,8 +842,16 @@ local function emptyState(parent, title, body)
 	return card
 end
 
+-- CanvasGroup, not Frame: it renders its children as one surface, so a page
+-- switch can fade the whole page instead of nothing. Pages were plain Frames
+-- and Kit.pageIn looked for a CanvasGroup child, so every switch was silent.
 local function newPage(name)
-	local p = mk("Frame", { Size=UDim2.fromScale(1,1), BackgroundTransparency=1, Visible=false }, content)
+	local ok, p = pcall(function()
+		return mk("CanvasGroup", { Size=UDim2.fromScale(1,1), BackgroundTransparency=1, Visible=false }, content)
+	end)
+	if not ok or not p then
+		p = mk("Frame", { Size=UDim2.fromScale(1,1), BackgroundTransparency=1, Visible=false }, content)
+	end
 	pages[name] = p
 	return p
 end
@@ -1086,7 +1119,16 @@ round(settingsCard,8); stroke(settingsCard)
 local function settingToggle(text,get,set,y)
 	label(settingsCard,text,UDim2.fromOffset(560,30),UDim2.fromOffset(16,y),13,C.text,true)
 	local b=button(settingsCard,get() and "ON" or "OFF",UDim2.fromOffset(70,28),UDim2.new(1,-86,0,y+1))
-	connect(b.Activated,function() set(not get()); b.Text=get() and "ON" or "OFF"; saveConfig(true) end)
+	local function paintState()
+		tween(b, { TextColor3 = get() and C.text or C.dim }, MOTION.fast)
+	end
+	paintState()
+	connect(b.Activated,function()
+		set(not get())
+		b.Text=get() and "ON" or "OFF"
+		paintState()
+		saveConfig(true)
+	end)
 end
 label(settingsCard,"APPEARANCE",UDim2.fromOffset(300,22),UDim2.fromOffset(16,14),11,C.dim,true)
 local themeBtn=button(settingsCard,"Theme: "..state.theme,UDim2.fromOffset(180,32),UDim2.fromOffset(16,42))
@@ -1256,6 +1298,18 @@ do
 				TextXAlignment=Enum.TextXAlignment.Left, AutoButtonColor=false }, sidebar)
 			pad(b,10); round(b,7)
 			b.TextTruncate = Enum.TextTruncate.AtEnd
+			-- Active marker, animated by setPage. Zero height when inactive.
+			mk("Frame", { Name="R3ST_Active", BackgroundColor3=C.white, BorderSizePixel=0,
+				AnchorPoint=Vector2.new(0,0.5), Position=UDim2.new(0,-6,0.5,0),
+				Size=UDim2.new(0,3,0,0) }, b)
+			-- The sidebar had NO hover state at all, on the control the user
+			-- touches most. Hover only when this row is not already the page.
+			connect(b.MouseEnter, function()
+				if state.page ~= item[2] then tween(b, { BackgroundColor3 = C.rowHover or C.hover }, MOTION.fast) end
+			end)
+			connect(b.MouseLeave, function()
+				if state.page ~= item[2] then tween(b, { BackgroundColor3 = C.panel }, MOTION.fast) end
+			end)
 			navButtons[item[2]] = b
 			connect(b.Activated, function() setPage(item[2]) end)
 			y += 38
@@ -1507,13 +1561,46 @@ if UIKit and UIKit.resizeGrip then
 	})
 end
 
--- Open animation. root starts hidden and lifts in; without this the hub simply
--- existed one frame and did not exist the frame before, which is most of what
--- made the product feel unfinished.
+-- Open/hide animation.
+--
+-- The open tween runs ONCE per inject, so it was never what the user actually
+-- saw. RightShift is -- it is the show/hide they press all session, and it used
+-- to set screen.Enabled with no transition at all. Both go through here now.
+local openScale = mk("UIScale", { Scale = 1 }, root)
+openScale:SetAttribute("R3ST_TargetScale", 1)
+local shown = true
+
+toggleShown = function(force)
+	local want = force
+	if want == nil then want = not shown end
+	if want == shown then return end
+	shown = want
+	if shown then
+		screen.Enabled = true
+		blur.Enabled = true
+		tween(blur, { Size = state.blur }, MOTION.base)
+		if UIKit and UIKit.appear then UIKit.appear(root, openScale) else root.Visible = true end
+	else
+		tween(blur, { Size = 0 }, MOTION.fast)
+		if UIKit and UIKit.vanish then
+			UIKit.vanish(root, openScale, function()
+				-- Only disable the ScreenGui once the window has finished leaving,
+				-- or the tween is cut off on its first frame and reads as a snap.
+				if alive and not shown then
+					screen.Enabled = false
+					blur.Enabled = false
+				end
+			end)
+		else
+			root.Visible = false
+			screen.Enabled = false
+			blur.Enabled = false
+		end
+	end
+end
+
 root.Visible = false
 if UIKit and UIKit.appear then
-	local openScale = mk("UIScale", { Scale = 1 }, root)
-	openScale:SetAttribute("R3ST_TargetScale", 1)
 	UIKit.appear(root, openScale)
 else
 	root.Visible = true
@@ -1554,8 +1641,7 @@ connect(UIS.InputEnded, function(i)
 end)
 connect(UIS.InputBegan, function(i, gp)
 	if i.KeyCode == Enum.KeyCode.RightShift then
-		screen.Enabled = not screen.Enabled
-		blur.Enabled = screen.Enabled
+		toggleShown()
 		return
 	end
 	if gp then return end
