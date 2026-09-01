@@ -12,10 +12,13 @@
 --
 -- CONTRACT
 --   local Kit = <loadfile "r3st_ui.lua">()          -- or HOST.ui from hub.lua
---   local W   = Kit.bind({ live = {}, conns = {}, guard = f })
+--   local H   = Kit.host({ screen = screen, root = panel, keep = { espFolder } })
+--   local W   = Kit.bind({ live = {}, conns = {}, guard = f,
+--                          cfg = CFG, save = saveConfig })
 --   W.page(scrollingFrame, { width = 700 })
 --   W.section(page, "Main")                          -- starts a card
 --   W.toggle(page, { label=, desc=, get=, set= })    -- rows land in that card
+--   W.toggle(page, { label=, key=, default=, set= }) -- ...key = autosaved to cfg
 --   W.slider(page, { label=, min=, max=, step=, get=, set=, fmt=, stock=,
 --                    tradeoff=, live=, commit= })
 --   W.button(page, text, desc, fn, wide)
@@ -33,7 +36,7 @@
 -- template must never mean rewriting a proven page of controls.
 
 local Kit = {}
-Kit.VERSION = "2026-08-31.1"
+Kit.VERSION = "2026-09-01.2"
 
 local UserInputService = game:GetService("UserInputService")
 local MarketplaceService = game:GetService("MarketplaceService")
@@ -98,6 +101,112 @@ function Kit.label(parent, text, size, col, x, y, w, h, align)
 	}, parent)
 end
 local label = Kit.label
+
+--==========================================================================
+-- Kit.host() -- the host-mount contract as ONE call
+--
+-- WHY: hub skill S6.1 states nine rules a module must obey to render inside
+-- hub.lua. They were prose for ~25 modules and the same three broke every time
+-- (measured across the CLI transcripts, 2026-09-01): RightShift not no-opped
+-- (blank tab), a saved "hidden" blanking the tab, and an ESP folder reparented
+-- into the panel (billboards clipped to a rectangle). Boilerplate the agent
+-- retypes per port is boilerplate the agent gets wrong per port, so the rules
+-- live here instead, where nobody has to remember them.
+--
+--   local H = Kit.host({ screen = screen, root = panel, keep = { S.folder } })
+--   if not H.hosted then  -- standalone only: your own window chrome
+--       makeDraggable(panel)
+--   end
+--   H.hideBind(function() panel.Visible = not panel.Visible end)  -- no-op hosted
+--
+-- Fields: H.hosted, H.frame (hub content host or nil), H.build, H.back,
+--         H.ui (the hub's already-loaded kit), H.width, H.height, H.misparented.
+--
+-- What it does when hosted (S6.1 r2,3,4,5,8,9):
+--   * parents `root` into the hub's host frame at 0,0
+--   * fits a fixed-offset layout with a UIScale instead of reflowing it
+--   * forces the root visible, so a saved "hidden" cannot blank the tab
+--   * makes hideBind() inert -- the hub owns RightShift
+--   * leaves every instance in `keep` where it is, and reports any that are
+--     already inside the host in H.misparented
+--   * takes the reparented root down with the module's own ScreenGui, so the
+--     existing teardown does not have to be rewritten
+--==========================================================================
+function Kit.host(o)
+	o = o or {}
+	local H = o.hostGlobal
+	if H == nil and getgenv then
+		local ok, g = pcall(getgenv)
+		if ok and type(g) == "table" then H = g.__R3ST_HOST end
+	end
+	local hosted = type(H) == "table" and typeof(H.host) == "Instance" and H.host.Parent ~= nil
+	local out = {
+		hosted = hosted,
+		frame = hosted and H.host or nil,
+		build = hosted and H.build or nil,
+		back = hosted and H.back or nil,
+		ui = hosted and H.ui or nil,
+		width = hosted and H.width or nil,
+		height = hosted and H.height or nil,
+		misparented = {},
+	}
+
+	-- Inert when standalone: the module keeps its own hide key. Inert when
+	-- hosted: the hub hides its own ScreenGui, and a module that also hides its
+	-- root comes back to a blank tab (S6.1 r4).
+	function out.hideBind(fn, keyCode)
+		if hosted or type(fn) ~= "function" then return nil end
+		local key = keyCode or Enum.KeyCode.RightShift
+		return UserInputService.InputBegan:Connect(function(i, gpe)
+			if gpe then return end
+			if i.KeyCode == key then fn() end
+		end)
+	end
+
+	if not hosted or not o.root then
+		return out
+	end
+
+	local root, host = o.root, H.host
+
+	-- r8: an ESP / adornment layer must stay a full-screen CoreGui layer. Report
+	-- rather than move: silently reparenting someone's folder is the bug.
+	for _, inst in ipairs(o.keep or {}) do
+		if typeof(inst) == "Instance" and inst:IsDescendantOf(host) then
+			out.misparented[#out.misparented + 1] = inst:GetFullName()
+		end
+	end
+
+	local w = root.AbsoluteSize.X > 0 and root.AbsoluteSize.X or root.Size.X.Offset
+	local h = root.AbsoluteSize.Y > 0 and root.AbsoluteSize.Y or root.Size.Y.Offset
+
+	root.Parent = host
+	root.AnchorPoint = Vector2.new(0, 0)
+	root.Position = UDim2.fromOffset(0, 0)
+	root.Visible = true -- r5
+	if root:IsA("GuiObject") then root.Active = true end
+
+	-- r3: fit by scaling, never by reflowing a proven page of controls.
+	if o.scale ~= false and w > 0 and h > 0 then
+		local hw = host.AbsoluteSize.X > 0 and host.AbsoluteSize.X or (H.width or w)
+		local hh = host.AbsoluteSize.Y > 0 and host.AbsoluteSize.Y or (H.height or h)
+		local s = math.min(hw / w, hh / h, 1)
+		if s < 0.999 then
+			local us = root:FindFirstChildOfClass("UIScale") or new("UIScale", {}, root)
+			us.Scale = s
+			out.scale = s
+		end
+	end
+
+	-- r9: ride the module's existing teardown instead of editing six paths.
+	if o.screen and o.screen ~= root then
+		out.conn = o.screen.Destroying:Connect(function()
+			if root and root.Parent then root:Destroy() end
+		end)
+	end
+
+	return out
+end
 
 --==========================================================================
 -- Layout state
@@ -241,6 +350,56 @@ function Kit.bind(host)
 	local W = { live = live, conns = conns, COL = COL }
 	local drag = nil
 
+	--======================================================================
+	-- Autosave, owned by the kit
+	--
+	-- WHY: "my config is not saving" is the second of the three regressions
+	-- every port hits (hub S9.0) -- 2614 mentions across the Cursor chats. It
+	-- happens because persistence is a separate wire the porting agent has to
+	-- remember for every control. Pass `cfg` (the module's own config table) and
+	-- `save` (its own writer) to bind(), then give a widget a `key`: the kit
+	-- reads the stored value on build, writes it on change, and coalesces the
+	-- save. No control can be ported without its persistence again.
+	--
+	--   local W = Kit.bind({ live=..., conns=..., cfg = CFG, save = saveConfig })
+	--   W.toggle(page, { label = "ESP", key = "esp", set = applyEsp })
+	--
+	-- `get`/`set` still win when supplied, so an existing proven wiring is never
+	-- overridden -- `set` is called AFTER the store is updated, so the module's
+	-- apply function sees the new value.
+	--======================================================================
+	local cfg, saveFn = host.cfg, host.save
+	local savePending = false
+	local function scheduleSave()
+		if not saveFn or savePending then return end
+		savePending = true
+		task.delay(host.saveDelay or 0.75, function()
+			savePending = false
+			guard("ui.autosave", saveFn)
+		end)
+	end
+	W.cfg = cfg
+	W.saveNow = function()
+		if saveFn then guard("ui.autosave", saveFn) end
+	end
+
+	-- Returns the get/set pair a widget should actually use.
+	local function wire(o, default)
+		if not (o.key and cfg) then
+			return o.get, o.set
+		end
+		if cfg[o.key] == nil then
+			cfg[o.key] = (o.default ~= nil) and o.default or default
+		end
+		local get = o.get or function() return cfg[o.key] end
+		local set = function(v)
+			cfg[o.key] = v
+			if o.set then o.set(v) end
+			scheduleSave()
+		end
+		return get, set
+	end
+
 	local function addLive(fn)
 		live[#live + 1] = fn
 	end
@@ -286,6 +445,7 @@ function Kit.bind(host)
 
 	-- Template toggle: label left, pill switch hard right.
 	function W.toggle(page, o)
+		local get, set = wire(o, false)
 		local h = o.desc and 44 or 34
 		local box = rowBox(page, h)
 		local name = label(box, o.label, 13, COL.text, 0, o.desc and 2 or 0, 0, o.desc and 18 or h)
@@ -315,7 +475,7 @@ function Kit.bind(host)
 		}, track)
 		corner(knob, 9)
 		local function redraw()
-			local on = o.get() and true or false
+			local on = get() and true or false
 			knob.Position = UDim2.new(0, on and 25 or 3, 0.5, 0)
 			knob.BackgroundColor3 = on and COL.white or COL.knobOff
 			track.BackgroundColor3 = on and Color3.fromRGB(70, 72, 78) or COL.row
@@ -323,7 +483,7 @@ function Kit.bind(host)
 			name.TextColor3 = on and COL.text or COL.dim
 		end
 		track.MouseButton1Click:Connect(function()
-			o.set(not o.get())
+			set(not get())
 			redraw()
 		end)
 		redraw()
@@ -337,6 +497,7 @@ function Kit.bind(host)
 	-- Template slider: label left, value right, full-width track underneath.
 	-- `tradeoff` / `live` add the two explanation lines gd2 relies on.
 	function W.slider(page, o)
+		local get, set = wire(o, o.min)
 		local h = 40 + (o.tradeoff and 12 or 0) + (o.live and 12 or 0)
 		local box = rowBox(page, h)
 		local name = label(box, o.label, 13, COL.text, 0, 0, 0, 18)
@@ -388,7 +549,7 @@ function Kit.bind(host)
 			return clamp((v - o.min) / math.max(o.max - o.min, 1e-6), 0, 1)
 		end
 		local function redraw()
-			local v = o.get()
+			local v = get()
 			local f = frac(v)
 			fill.Size = UDim2.fromScale(f, 1)
 			knob.Position = UDim2.new(f, 0, 0.5, 0)
@@ -403,7 +564,7 @@ function Kit.bind(host)
 			if o.step then
 				v = math.floor(v / o.step + 0.5) * o.step
 			end
-			o.set(clamp(v, o.min, o.max))
+			set(clamp(v, o.min, o.max))
 			redraw()
 		end
 		local function grab(i)

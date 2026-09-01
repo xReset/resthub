@@ -1,5 +1,20 @@
 --------------------------------------------------------------------------
--- gd2.lua -- R3ST Hub / Ghost Driver v2026-08-31.gd2.35 (2026-08-31)   PlaceId 137228775845999
+-- gd2.lua -- R3ST Hub / Ghost Driver v2026-09-01.gd2.41 (2026-09-01)   PlaceId 137228775845999
+-- 2026-09-01.gd2.41: normalize owned-car names against all 19 dump-backed
+--   CarTiers entries and retry one observed first-apply gearbox race.
+-- 2026-09-01.gd2.40: detach only the embedded panel on Hub route changes and
+--   remount it on return, keeping the vehicle controller active beside Anims.
+-- 2026-09-01.gd2.39: make road prefetch mandatory while the speed brake is
+--   disabled, request a three-point corridor instead of one distant point,
+--   and retry transient failures instead of persisting prefetch OFF forever.
+-- 2026-09-01.gd2.38: correct the detection/aero notes to match the .37 path.
+-- 2026-09-01.gd2.37: stop treating the unrequired CarSpeedLimits module as a
+--   physical gearbox ceiling, and apply drag/downforce in each force part's
+--   local frame exactly like Aerodynamics. Removes the artificial ~300 MPH
+--   gearing wall and the turn/bump launch caused by world/local force mismatch.
+-- 2026-09-01.gd2.36: replace fourteen narrow audio controls with five broad
+--   groups, lower every group to 35% on migration, and include character/world
+--   sounds that previously bypassed the mixer.
 -- 2026-08-31.gd2.35: widen the embedded design body from 920x600 to 1040x600
 --   so it matches the hub host ratio instead of uniform-scaling into a narrow
 --   panel with dead space. Cash budget adaptive mode is ready by default, but
@@ -56,12 +71,10 @@
 --     TrafficCollision* parts EXIST, 0481.lua:186-203). The crash guard
 --     therefore RESIZES those parts instead of removing them - the audit only
 --     tests FindFirstChild, so a resized part still reports present.
---   * CarSpeedLimits (0225.lua) is required by no client script -> a server
---     script uses it. Speed above ratedMph * 1.6 * upgradeScale is the one
---     real exposure here. The GUARD readout states it; nothing auto-throttles,
---     because an oscillating limiter would spam TUNING APPLIED lines. The
---     gearbox is PLANNED under that ceiling once per apply (Trans.fit), which
---     is a single write, not a control loop.
+--   * CarSpeedLimits (0277.lua) is required by no client script. Its inferred
+--     ratedMph * 1.6 * upgradeScale value remains an exposure readout only;
+--     no dump-backed client force enforces it, so it is not used to shorten
+--     the gearbox. The proven AeroDrag wall is still planned around while ON.
 --
 -- POWER LEVER: Drive builds RPM-indexed power tables ONCE at car load and
 --   Engine() reads them by [gear+2][floor(rpm/100)] (0026.lua:742-871,
@@ -96,7 +109,7 @@ local SoundService = game:GetService("SoundService")
 local HttpService = game:GetService("HttpService")
 
 local LP = Players.LocalPlayer
-local BUILD_VERSION = "2026-08-31.gd2.35"
+local BUILD_VERSION = "2026-09-01.gd2.41"
 local LOG_FILE = "logs/gd2.log"
 local CFG_FILE = "gd2_config.json"
 local OLD_CFG_FILE = "gd_config.json"
@@ -270,14 +283,12 @@ function Limits.serverMph(car)
 	return U.mph(studs)
 end
 
--- Highest speed this car can actually reach, in mph, or nil if unknown.
-function Limits.ceilingMph(car)
-	local cap = Limits.limiterActive and Limits.AERO_WALL_MPH or nil
-	local srv = Limits.serverMph(car)
-	if srv and (not cap or srv < cap) then
-		cap = srv
-	end
-	return cap
+-- Only a proven client-side physical ceiling belongs in gearbox planning.
+-- CarSpeedLimits has no client require in this dump; it is an exposure readout,
+-- not a force. Treating its inferred server value as physics shortened the box
+-- until top gear itself became the reported ~300 MPH wall.
+function Limits.ceilingMph(_car)
+	return Limits.limiterActive and Limits.AERO_WALL_MPH or nil
 end
 
 function U.copy(t)
@@ -316,7 +327,7 @@ end
 -- Config -- versioned, per-car profiles, universal presets
 --==========================================================================
 local Config = {}
-Config.VERSION = 3
+Config.VERSION = 4
 
 -- A profile is one coherent tune outcome. Every field is a normalised intent,
 -- never a raw A-Chassis value; TuneController resolves it against the car's
@@ -379,10 +390,11 @@ Config.DEFAULT = {
 	custom = {},          -- name -> profile
 	cars = {},            -- car type name -> resolved profile
 	audio = {
-		music = 1, engine = 1, whoosh = 1, impact = 1,
-		ui = 1, ambience = 1, otherCars = 1, radios = 1,
-		vehicleEngine = 1, vehicleExhaust = 1, vehicleTires = 1,
-		vehicleBrakes = 1, vehicleHorn = 1, vehicleAccessories = 1,
+		music = 0.35,
+		vehicle = 0.35,
+		driving = 0.35,
+		environment = 0.35,
+		others = 0.35,
 	},
 	esp = { enabled = false, name = true, dist = true },
 	crashGuard = false,
@@ -450,13 +462,13 @@ function Config.load()
 		return
 	end
 	if raw then
-		-- v2 shipped with the legacy mixer values imported, so anyone who ran
-		-- it has whoosh muted and impact at 6% saved as if they chose it.
-		-- Reset the mixer once on the way to v3; everything else survives.
 		local upgraded = U.merge(Config.DEFAULT, raw)
-		if (tonumber(raw.version) or 0) < 3 then
+		-- v4 intentionally replaces the hyperspecific mixer. Old combinations
+		-- cannot map to one honest broad value, so start every broad group at the
+		-- requested quiet baseline instead of reviving a loud legacy sub-slider.
+		if (tonumber(raw.version) or 0) < 4 then
 			upgraded.audio = U.copy(Config.DEFAULT.audio)
-			log("config: v" .. tostring(raw.version) .. " -> v3, mixer levels reset to 100%")
+			log("config: v" .. tostring(raw.version) .. " -> v4, audio grouped and lowered to 35%")
 		end
 		upgraded.version = Config.VERSION
 		Config.data = upgraded
@@ -543,9 +555,31 @@ local function fire(ev, sess)
 	end
 end
 
--- CarSpeedLimits.nameFrom: strip the "<player>_" prefix (0225.lua:63-72).
+-- CarTiers is the complete dump-backed catalog (0323.lua), including cars
+-- absent from the older CarSpeedLimits table. Match a full suffix so Roblox
+-- usernames containing underscores cannot corrupt the per-car config key.
+local CAR_NAMES = {}
+do
+	local tiers = ReplicatedStorage:FindFirstChild("CarTiers")
+	local ok, catalog = pcall(require, tiers)
+	if ok and type(catalog) == "table" and type(catalog.nameOfId) == "function" then
+		for id = 1, 255 do
+			local name = catalog.nameOfId(id)
+			if type(name) == "string" and name ~= "" then
+				CAR_NAMES[#CAR_NAMES + 1] = name
+			end
+		end
+		table.sort(CAR_NAMES, function(a, b) return #a > #b end)
+	end
+end
+
 local function carTypeOf(model)
 	local n = model and model.Name or ""
+	for _, name in ipairs(CAR_NAMES) do
+		if n == name or n:sub(-#name - 1) == "_" .. name then
+			return name
+		end
+	end
 	return n:match("^[^_]+_(.+)$") or n
 end
 
@@ -1535,9 +1569,20 @@ function Tune.verify(sess, prof, r)
 		end
 	end
 	if bad then
-		Tune.setState("ERROR", ("gear %d ratio did not take"):format(bad))
+		-- A newly hooked limited car can still be finishing TuningApplier's
+		-- initial task when our first transaction lands. The live mismatch is
+		-- evidence, not a timeout inference: retry the same complete transaction
+		-- once, then surface a persistent failure honestly.
+		if not sess.ratioRetry then
+			sess.ratioRetry = true
+			Tune.pending = { sess = sess, prof = U.copy(prof), why = "gearbox settle retry" }
+			Tune.setState("RETRYING", ("gear %d did not take on first apply"):format(bad))
+		else
+			Tune.setState("ERROR", ("gear %d ratio did not take after retry"):format(bad))
+		end
 		return
 	end
+	sess.ratioRetry = nil
 
 	-- shift point is a live Tune field Drive reads every frame (0026.lua:902);
 	-- it needs no apply and produces no log line.
@@ -1690,9 +1735,10 @@ end
 -- AeroController -- single owner of drag and downforce
 --
 -- Two independent client drag systems exist:
---   * A-Chassis Aerodynamics writes Body.Drag.T.Force = speed^2 * 0.011333
---     and the two downforce thrusts, every Heartbeat (0010.lua:15-19).
---   * AeroDrag removes speed above 400 km/h (0483.lua:59-64).
+--   * A-Chassis Aerodynamics writes opposing drag at speed^2 * 0.018333
+--     and world-down force transformed into each part's local frame every
+--     Heartbeat (0030.lua:15-31).
+--   * AeroDrag removes speed above 400 km/h (0133.lua:58-64).
 -- Disabling Aerodynamics wholesale would remove downforce with the drag, so
 -- instead its connection is disabled and this controller writes the same
 -- three forces with a user multiplier on each. One writer, no pinning race,
@@ -1819,6 +1865,9 @@ function Aero.bind(sess)
 	Aero.parts = {
 		sess = sess,
 		seat = sess.car:FindFirstChild("DriveSeat") or sess.seat,
+		dragPart = drag,
+		dfPart = dF,
+		drPart = dR,
 		dragT = drag.T,
 		dfT = dF.T,
 		drT = dR.T,
@@ -1856,9 +1905,16 @@ function Aero.bind(sess)
 		local vol = spd / 500 * Aero.windLevel
 		if p.wind then p.wind.Volume = vol end
 		if p.body then p.body.Volume = vol end
-		p.dfT.Force = Vector3.new(0, spd / -300 * 125 * Aero.downMult, 0)
-		p.drT.Force = Vector3.new(0, spd / -300 * 150 * Aero.downMult, 0)
-		p.dragT.Force = Vector3.new(0, 0, spd * spd * 0.011333333333333334 * Aero.dragMult)
+		local velocity = p.seat.AssemblyLinearVelocity
+		local worldDown = Vector3.new(0, spd / -300 * Aero.downMult, 0)
+		p.dfT.Force = p.dfPart.CFrame:VectorToObjectSpace(worldDown * 125)
+		p.drT.Force = p.drPart.CFrame:VectorToObjectSpace(worldDown * 150)
+		if spd > 0.5 then
+			local worldDrag = -velocity.Unit * spd * spd * 0.018333333333333333 * Aero.dragMult
+			p.dragT.Force = p.dragPart.CFrame:VectorToObjectSpace(worldDrag)
+		else
+			p.dragT.Force = Vector3.zero
+		end
 	end)
 	log(("aero: bound (drag x%.2f, downforce x%.2f)"):format(Aero.dragMult, Aero.downMult))
 	return true
@@ -1875,9 +1931,12 @@ function Aero.unbind()
 	if p then
 		pcall(function()
 			local spd = p.seat and p.seat.Parent and p.seat.Velocity.Magnitude or 0
-			p.dfT.Force = Vector3.new(0, spd / -300 * 125, 0)
-			p.drT.Force = Vector3.new(0, spd / -300 * 150, 0)
-			p.dragT.Force = Vector3.new(0, 0, spd * spd * 0.011333333333333334)
+			local velocity = p.seat and p.seat.Parent and p.seat.AssemblyLinearVelocity or Vector3.zero
+			p.dfT.Force = p.dfPart.CFrame:VectorToObjectSpace(Vector3.new(0, spd / -300 * 125, 0))
+			p.drT.Force = p.drPart.CFrame:VectorToObjectSpace(Vector3.new(0, spd / -300 * 150, 0))
+			p.dragT.Force = spd > 0.5
+				and p.dragPart.CFrame:VectorToObjectSpace(-velocity.Unit * spd * spd * 0.018333333333333333)
+				or Vector3.zero
 		end)
 	end
 	for _, c in ipairs(Aero.held.aero or {}) do
@@ -2449,16 +2508,20 @@ local Stream = {}
 Stream.last = 0
 Stream.requests = 0
 Stream.lastLog = 0
+Stream.retryAt = 0
 Stream.status = "idle"
 
 Stream.MIN_STUDS = 150     -- ~52 MPH; below this the stock radius is plenty
-Stream.LEAD_TIME = 2.0     -- seconds of road to ask for ahead of the car
-Stream.MAX_LEAD = 1200     -- studs; beyond this the request is off the map
+Stream.LEAD_TIME = 3.0     -- seconds of road requested as a corridor
+Stream.MAX_LEAD = 2000     -- enough for >300 MPH without targeting off-map
 Stream.RATE = 0.25         -- 4 Hz
 
 function Stream.step()
-	if Config.data.streamAhead == false then
-		Stream.status = "off"
+	-- With the 400 km/h brake gone, prefetch is not optional: the dump proves
+	-- only 512 guaranteed studs around the player. A saved OFF previously let
+	-- the car outrun the road while every other fast setting resumed ON.
+	if Config.data.streamAhead == false and Limits.limiterActive then
+		Stream.status = "off (speed brake on)"
 		return
 	end
 	local now = os.clock()
@@ -2482,18 +2545,26 @@ function Stream.step()
 		return
 	end
 	local lead = math.min(speed * Stream.LEAD_TIME, Stream.MAX_LEAD)
-	local ahead = seat.Position + vel.Unit * lead
-	local ok = pcall(function()
-		LP:RequestStreamingAroundPosition(ahead)
-	end)
-	if not ok then
-		Stream.status = "unavailable on this client"
-		Config.data.streamAhead = false
-		log("stream: RequestStreamingAroundPosition failed; prefetch disabled")
+	if now < Stream.retryAt then
 		return
 	end
-	Stream.requests = Stream.requests + 1
-	Stream.status = ("prefetching %.0f studs ahead at %.0f MPH"):format(lead, U.mph(speed))
+	local origin, direction = seat.Position, vel.Unit
+	local ok = pcall(function()
+		-- One far request can leave an unloaded gap between the stock radius and
+		-- its target radius. Three points overlap into a continuous road corridor.
+		LP:RequestStreamingAroundPosition(origin + direction * lead * 0.35)
+		LP:RequestStreamingAroundPosition(origin + direction * lead * 0.68)
+		LP:RequestStreamingAroundPosition(origin + direction * lead)
+	end)
+	if not ok then
+		Stream.status = "request failed; retrying"
+		Stream.retryAt = now + 2
+		log("stream: RequestStreamingAroundPosition failed; retry in 2s")
+		return
+	end
+	Stream.retryAt = 0
+	Stream.requests = Stream.requests + 3
+	Stream.status = ("prefetching corridor %.0f studs ahead at %.0f MPH"):format(lead, U.mph(speed))
 	if now - Stream.lastLog > 30 then
 		Stream.lastLog = now
 		log(("stream: %d prefetch requests, %s"):format(Stream.requests, Stream.status))
@@ -2686,9 +2757,22 @@ function Audio.bindCar(sess)
 	return true
 end
 
+local AUDIO_GROUP = {
+	music = "music",
+	engine = "vehicle", vehicleEngine = "vehicle", vehicleExhaust = "vehicle",
+	vehicleTires = "vehicle", vehicleBrakes = "vehicle", vehicleHorn = "vehicle",
+	vehicleAccessories = "vehicle",
+	whoosh = "driving", impact = "driving",
+	ui = "environment", ambience = "environment",
+	otherCars = "others", radios = "others",
+}
+
+local function mult(cat)
+	return U.clamp(Audio.levels[AUDIO_GROUP[cat] or cat] or 0.35, 0, 1)
+end
+
 function Audio.applyEngine()
-	local lvl = U.clamp(Audio.levels.engine or 1, 0, 1)
-		* U.clamp(Audio.levels.vehicleEngine or 1, 0, 1)
+	local lvl = mult("engine")
 	for _, b in ipairs(Audio.bound or {}) do
 		local base = b.saved.MasterVolume or 1
 		b.t.MasterVolume = base * lvl
@@ -2721,14 +2805,6 @@ function Audio.applyRpmScale(k)
 end
 
 -- --- per-sound mixer for the categories the game writes discretely ---
-
-local function mult(cat)
-	local level = U.clamp(Audio.levels[cat] or 1, 0, 1)
-	if cat:sub(1, 7) == "vehicle" then
-		level = level * U.clamp(Audio.levels.engine or 1, 0, 1)
-	end
-	return level
-end
 
 function Audio.ensureOtherGroup()
 	if Audio.otherGroup and Audio.otherGroup.Parent then return Audio.otherGroup end
@@ -2883,9 +2959,11 @@ function Audio.bindDangerHeartbeat()
 	log("audio: swerve heartbeat fail-safe bound")
 end
 
-function Audio.setLevel(cat, v)
-	Audio.levels[cat] = U.clamp(v, 0, 1)
-	Audio.applyCat(cat)
+function Audio.setLevel(group, v)
+	Audio.levels[group] = U.clamp(v, 0, 1)
+	for cat, mapped in pairs(AUDIO_GROUP) do
+		if mapped == group then Audio.applyCat(cat) end
+	end
 	Config.save()
 end
 
@@ -2907,7 +2985,7 @@ local function ownedElsewhere(sound)
 		if n == "TrafficFolder" or n == "ClientImpactFX_Pool" or n:sub(1, 4) == "AC6_" then
 			return true
 		end
-		if p:FindFirstChild("DriveSeat") or p:FindFirstChildOfClass("Humanoid") then
+		if p:FindFirstChild("DriveSeat") then
 			return true
 		end
 		p = p.Parent
@@ -4069,65 +4147,45 @@ local function buildExhaust(page)
 end
 
 local function buildAudio(page)
-	local cats = {
-		{ "music", "Game music", "Menu music, showroom music and your own car radio. Never the engine." },
-		{ "engine", "Your vehicle — master", "Lowers every sound from your car, including engine, exhaust, backfire, tires, brakes, horn and accessories." },
-		{ "vehicleEngine", "Engine layers", "RPM-driven intake and engine layers. Multiplied by the vehicle master." },
-		{ "vehicleExhaust", "Exhaust / backfire", "Exhaust notes, pops and backfire bursts. Multiplied by the vehicle master." },
-		{ "vehicleTires", "Tires", "Skid, scrub and tire effects. Multiplied by the vehicle master." },
-		{ "vehicleBrakes", "Brakes", "Brake whistle, heat and related brake sounds. Multiplied by the vehicle master." },
-		{ "vehicleHorn", "Horn / sirens", "Horn and siren sounds from your car. Multiplied by the vehicle master." },
-		{ "vehicleAccessories", "Vehicle accessories", "Remaining owned-car sounds not covered above. Multiplied by the vehicle master." },
-		{ "whoosh", "Near-miss whoosh", "The pass-by sound when you thread traffic." },
-		{ "impact", "Collision impact", "The crash hit sound and its sparks." },
-		{ "ui", "Interface sounds", "Menu hover, click and pedal sounds." },
-		{ "ambience", "Ambience and weather", "Rain, storm, day and night beds." },
-		{ "otherCars", "Other players' cars", "Complete vehicle audio from everyone else's car: engine, tires, backfire, brakes and accessories." },
-		{ "radios", "Other players' radios", "Everyone else's car radio, not yours." },
+	local groups = {
+		{ "music", "Music and radio", "Menu, showroom, world music and your radio." },
+		{ "vehicle", "Your vehicle", "Engine, intake, exhaust, shifts, tires, brakes, horn, wind and accessories." },
+		{ "driving", "Driving effects", "Near-miss, collision and road-event effects." },
+		{ "environment", "World and interface", "Weather, ambience, character movement, menus and pedal feedback." },
+		{ "others", "Other players", "Other cars and their radios." },
 	}
 	section(page, "MIXER")
-	note(page, "Levels are multipliers over whatever the game last set. Master volume is never touched.")
-	for _, c in ipairs(cats) do
+	note(page, "Five broad limits over the game's own mix. Every group starts at 35%; Roblox master volume is untouched.")
+	for _, c in ipairs(groups) do
 		local key = c[1]
 		slider(page, {
 			label = c[2], min = 0, max = 1, step = 0.05,
-			get = function() return Config.data.audio[key] or 1 end,
+			get = function() return Config.data.audio[key] or 0.35 end,
 			set = function(v) Audio.setLevel(key, v) end,
-			stock = function() return 1 end,
+			stock = function() return 0.35 end,
 			fmt = function(v) return v <= 0 and "MUTED" or ("%d%%"):format(math.floor(v * 100)) end,
 			tradeoff = c[3],
 			live = function()
-				if key == "engine" then
-					local n = 0
-					for _, rec in pairs(Audio.tracked) do
-						if rec.cat:sub(1, 7) == "vehicle" then n = n + 1 end
-					end
-					return Audio.cfgErr or ("engine config bound + %d discrete sounds"):format(n)
-				elseif key == "vehicleEngine" then
-					return Audio.cfgErr or ("config-driven layers bound, rev-range factor %.2f"):format(Audio.rpmK)
+				if key == "vehicle" then
+					return Audio.cfgErr or ("engine bound, rev-range factor %.2f"):format(Audio.rpmK)
 				end
 				local n = 0
-				if key == "otherCars" then
+				for _, rec in pairs(Audio.tracked) do
+					if AUDIO_GROUP[rec.cat] == key then n = n + 1 end
+				end
+				if key == "others" then
 					for sound in pairs(Audio.otherSounds) do if sound.Parent then n = n + 1 end end
-				else
-					for _, rec in pairs(Audio.tracked) do
-						if rec.cat == key then n = n + 1 end
-					end
 				end
 				return ("%d sound%s tracked"):format(n, n == 1 and "" or "s")
 			end,
 		})
 	end
 	button(page, "Mute everything", nil, function()
-		for _, c in ipairs(cats) do
-			Audio.setLevel(c[1], 0)
-		end
+		for _, c in ipairs(groups) do Audio.setLevel(c[1], 0) end
 		UI.refreshAll()
 	end)
-	button(page, "Reset all to 100%", nil, function()
-		for _, c in ipairs(cats) do
-			Audio.setLevel(c[1], 1)
-		end
+	button(page, "Reset all to quiet", nil, function()
+		for _, c in ipairs(groups) do Audio.setLevel(c[1], 0.35) end
 		UI.refreshAll()
 	end)
 end
@@ -4341,9 +4399,8 @@ local function buildConfig(page)
 		Config.data = U.copy(Config.DEFAULT)
 		Config.saveNow()
 		Audio.levels = Config.data.audio -- the old table is gone; re-point
-		Audio.applyCat("engine")
-		for _, c in ipairs({ "music", "whoosh", "impact", "ui", "ambience", "otherCars", "radios" }) do
-			Audio.applyCat(c)
+		for _, group in ipairs({ "music", "vehicle", "driving", "environment", "others" }) do
+			Audio.setLevel(group, Config.data.audio[group])
 		end
 		ESP.set(false)
 		Guard.set(false)
@@ -4706,6 +4763,30 @@ function GD.onBound(ev, s)
 	end)
 end
 
+function UI.detach()
+	for _, c in ipairs(UI.conns) do
+		pcall(function() c:Disconnect() end)
+	end
+	table.clear(UI.conns)
+	table.clear(UI.live)
+	table.clear(UI.tabs)
+	UI.bindCapture = false
+	if UI.root then pcall(function() UI.root:Destroy() end) end
+	UI.root = nil
+	UI.gui = nil
+	UI.embed = nil
+	log("ui: panel detached (vehicle controller remains active)")
+end
+
+function UI.mount(hostContract)
+	if not GD.running then return false, "Ghost Driver controller is not running" end
+	UI.detach()
+	GENV.__R3ST_HOST = hostContract
+	UI.build()
+	log("ui: panel remounted (vehicle controller preserved)")
+	return true
+end
+
 function GD.unload(silentRestore)
 	if not GD.running then
 		return
@@ -4859,6 +4940,8 @@ local function main()
 	end)
 
 	GENV[GKEY] = {
+		detach = UI.detach,
+		mount = UI.mount,
 		unload = function() GD.unload(true) end,
 		build = BUILD_VERSION,
 	}

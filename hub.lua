@@ -1,7 +1,20 @@
--- R3ST Hub v2026-09-01.16 (2026-09-01)
+-- R3ST Hub v2026-09-01.19 (2026-09-01)
 -- Rung 2 (client-created UI only). Server sees: nothing; no game state or remotes touched.
 -- Re-inject safe: self-teardown on load; RightShift = show/hide; K = unload.
 -- Changelog:
+--   .19 Send report. A friend running the public loadstring had no way to get
+--      their logs to us, so every outside bug report was "it doesn't work".
+--      About -> Send report posts the build stamps, place/universe and the tail
+--      of the hub + module logs to the receiver (LXC104, Tailscale Funnel) that
+--      had been live and empty for a month. Consent only: a button, no timer,
+--      and the line next to it says exactly what is sent. Also exposed as
+--      __R3ST_HUB.report(who, note) so a module can offer the same button.
+--      Read what arrives with: bash tools/pull_friend_logs.sh
+--   .18 preserve any embedded controller that exposes detach/mount, allowing
+--      Ghost Driver and Anims to remain active while their panels alternate.
+--   .17 treat scripts/anims.lua and internal/admin_core.lua as the canonical
+--      general-tool backends. Admin launch now waits for core readiness and
+--      reports the actual backend build instead of claiming deferred success.
 --   .16 handle RightShift before the gameProcessed gate so games that consume
 --      Shift cannot block the Hub show/hide bind.
 --   .15 Anims is a persistent controller, not the active game module. Route
@@ -75,7 +88,7 @@
 --   the moment the chunk returns, so nothing leaks into a later inject.
 --   Embedded today: gd2.lua, blr_hub.lua, anims.lua.
 
-local BUILD_VERSION = "2026-09-01.16"
+local BUILD_VERSION = "2026-09-01.19"
 local GKEY = "__R3ST_HUB"
 local HOST_KEY = "__R3ST_HOST"
 local CONFIG_FILE = "rbx_hub_template_config.json"
@@ -266,8 +279,8 @@ local REGISTRY = {
 local GENERAL = {
 	{ id = "anims", name = "Anims", file = "anims.lua", embed = true, gkey = "__ANIMS_GUI",
 		desc = "M7-derived animation packs: 21 custom, 35 Roblox, 24 UGC, per-slot mixing." },
-	{ id = "admin", name = "Admin", file = "admin.lua", gkey = "__ADMIN_CORE",
-		desc = "The ] command bar. Opens its own minimal bar -- not a panel." },
+	{ id = "admin", name = "Admin", file = "admin.lua", gkey = "Admin",
+		desc = "The ] command bar backed by internal/admin_core.lua. Opens its own minimal bar." },
 }
 
 local registryCount = #REGISTRY
@@ -506,12 +519,13 @@ local function unmountActive()
 	if not mountedModule then return end
 	local handle = G[mountedModule.gkey]
 	if type(handle) == "table" then
-		-- Anims owns persistent character state. A route change owns only its
-		-- panel; explicit Anims OFF is the sole restore path.
-		local fn = mountedModule.id == "anims" and handle.detach or (handle.destroy or handle.unload)
+		-- A controller that exposes detach/mount explicitly separates its panel
+		-- from its live state. Route changes own the panel only.
+		local fn = handle.detach or handle.destroy or handle.unload
 		if type(fn) == "function" then pcall(fn) end
 	end
-	hubLog("info", (mountedModule.id == "anims" and "detached " or "unmounted ") .. mountedModule.name)
+	local persistent = type(handle) == "table" and type(handle.detach) == "function"
+	hubLog("info", (persistent and "detached " or "unmounted ") .. mountedModule.name)
 	mountedModule = nil
 end
 
@@ -535,9 +549,9 @@ local function runModule(entry, host)
 			back = function() setPage("Home") end,
 		}
 	end
-	-- Re-entering Anims remounts its panel without restarting the controller or
-	-- restoring applied ids. This also keeps Anims intact across GD2 reloads.
-	local existing = entry.id == "anims" and G[entry.gkey] or nil
+	-- Re-enter any persistent controller by mounting a fresh panel without
+	-- restarting its live state. Anims and Ghost Driver both use this path.
+	local existing = G[entry.gkey]
 	if host and type(existing) == "table" and type(existing.mount) == "function" then
 		local mounted, mountErr = pcall(existing.mount, G[HOST_KEY])
 		G[HOST_KEY] = nil
@@ -882,8 +896,29 @@ do
 	local go = button(p, "Open command bar", UDim2.fromOffset(200,38), UDim2.fromOffset(24,120))
 	connect(go.Activated, function()
 		local ok, err = runModule({ name = "Admin", file = "admin.lua" }, nil)
-		st.Text = ok and "admin.lua loaded — press ] to focus the bar" or tostring(err)
-		st.TextColor3 = ok and C.green or C.bad
+		if not ok then
+			st.Text = tostring(err)
+			st.TextColor3 = C.bad
+			return
+		end
+		st.Text = "admin loader started — waiting for canonical core..."
+		st.TextColor3 = C.dim
+		task.spawn(function()
+			local deadline = os.clock() + 18
+			repeat
+				local admin = G.Admin
+				if type(admin) == "table" and admin._ready == true then
+					st.Text = "Admin " .. tostring(admin.build or "unknown build") .. " ready — press ]"
+					st.TextColor3 = C.green
+					return
+				end
+				task.wait(0.25)
+			until not alive or os.clock() >= deadline
+			if alive then
+				st.Text = "Admin core did not become ready — check logs/admin.log"
+				st.TextColor3 = C.bad
+			end
+		end)
 	end)
 	label(p, "Backend is internal/admin_core.lua. Never autoexec it in Critical Strike.",
 		UDim2.new(1,-48,0,20), UDim2.fromOffset(24,204), 11, C.dim)
@@ -976,6 +1011,25 @@ do
 	end
 	label(about, "Modules stay separate files in git; the hub is one entry point, not one implementation file.",
 		UDim2.new(1,-48,0,20), UDim2.fromOffset(24,y+12), 11, C.dim)
+
+	-- Send report (.19). Consent only: nothing leaves this machine unless the
+	-- person here presses this, and the line below says exactly what goes.
+	local send = button(about, "Send report to the developer", UDim2.fromOffset(260,30), UDim2.fromOffset(24, y+42))
+	local result = label(about, "Sends the build stamps, this PlaceId and the tail of your hub/module logs. Nothing else.",
+		UDim2.new(1,-320,0,30), UDim2.fromOffset(296, y+42), 11, C.dim)
+	result.TextWrapped = true
+	connect(send.Activated, function()
+		result.Text = "sending..."
+		task.spawn(function()
+			local api = G[GKEY]
+			if not api or not api.report then
+				result.Text = "report unavailable in this build"
+				return
+			end
+			local ok, msg = api.report(tostring(game.Players.LocalPlayer and game.Players.LocalPlayer.UserId or "friend"))
+			result.Text = (ok and "sent — thank you. " or "could not send — ") .. tostring(msg)
+		end)
+	end)
 end
 
 --==========================================================================
@@ -1150,6 +1204,84 @@ local function reload(target)
 	return reloadModule(want)
 end
 
+--==========================================================================
+-- Report -- how a friend's broken session reaches us (.19)
+--
+-- When someone else runs the public loadstring, their logs are on THEIR disk
+-- and every bug report is "it doesn't work" plus a guess. The receiver for this
+-- has existed and been publicly reachable for a month (LXC104, Tailscale
+-- Funnel) and had never received one line, because nothing on the client side
+-- ever sent one. This is that half.
+--
+-- Consent, not telemetry: it sends only when a person presses the button, it
+-- says exactly what it sends, and there is no timer and no automatic path.
+-- Body = build stamps + place/universe + the tail of the hub log and the
+-- mounted module's log. No account name is read, no token, no file outside
+-- workspace/logs.
+--
+-- Read what came in with: bash tools/pull_friend_logs.sh
+--==========================================================================
+local REPORT_URL = "https://discord-bot.tail380340.ts.net/ingest"
+local REPORT_TAIL = 24000 -- bytes per log; the receiver caps a post at 2 MB
+
+local function tailFile(path, n)
+	local ok, body = pcall(readfile, path)
+	if not ok or type(body) ~= "string" then
+		return ("(%s unreadable)"):format(path)
+	end
+	if #body > n then
+		body = "...(truncated)...\n" .. body:sub(#body - n)
+	end
+	return body
+end
+
+local function buildReport(note)
+	local parts = {
+		("== r3st report %s =="):format(os.date("%Y-%m-%d %H:%M:%S")),
+		("hub build : %s"):format(BUILD_VERSION),
+		("place     : %s   universe: %s"):format(tostring(game.PlaceId), tostring(game.GameId)),
+		("module    : %s"):format(activeEntry and (activeEntry.name .. " / " .. activeEntry.file) or "none"),
+		("executor  : %s"):format((identifyexecutor and select(1, pcall(identifyexecutor))) and identifyexecutor() or "unknown"),
+		("note      : %s"):format(note and note ~= "" and note or "(none given)"),
+		("status    : %s"):format(tostring(hubStatus())),
+		"", "---- logs/rbx_hub.log ----", tailFile("logs/rbx_hub.log", REPORT_TAIL),
+	}
+	if activeEntry then
+		local name = activeEntry.file:gsub("%.lua$", "")
+		parts[#parts + 1] = ("---- logs/%s.log ----"):format(name)
+		parts[#parts + 1] = tailFile(("logs/%s.log"):format(name), REPORT_TAIL)
+	end
+	return table.concat(parts, "\n")
+end
+
+-- Returns ok, message. Never raises: a failed report must not take the UI with
+-- it, and the user is entitled to a reason rather than a silent no-op.
+local function sendReport(who, note)
+	local body = buildReport(note)
+	pcall(writefile, "logs/r3st_report_last.txt", body) -- always keep a local copy
+	local req = (syn and syn.request) or (http and http.request) or http_request or request
+	if type(req) ~= "function" then
+		return false, "this executor exposes no HTTP request function; logs/r3st_report_last.txt was written instead"
+	end
+	who = (tostring(who or "friend"):gsub("[^%w%-_]", "")):sub(1, 24)
+	if who == "" then who = "friend" end
+	local ok, res = pcall(req, {
+		Url = REPORT_URL .. "?who=" .. who,
+		Method = "POST",
+		Headers = { ["Content-Type"] = "text/plain" },
+		Body = body,
+	})
+	if not ok then
+		return false, "send failed: " .. tostring(res)
+	end
+	local code = type(res) == "table" and (res.StatusCode or res.Status or 0) or 0
+	if code >= 200 and code < 300 then
+		hubLog("info", "report sent as " .. who .. " (" .. #body .. " bytes)")
+		return true, ("sent %d bytes as %s"):format(#body, who)
+	end
+	return false, "receiver returned " .. tostring(code)
+end
+
 G[GKEY] = {
 	destroy = destroy,
 	build = BUILD_VERSION,
@@ -1157,6 +1289,8 @@ G[GKEY] = {
 	status = hubStatus,
 	targets = reloadTargets,
 	logFile = RELOAD_LOG,
+	report = sendReport,
+	reportPreview = buildReport,
 }
 connect(close.Activated, destroy)
 connect(minimize.Activated, function()
