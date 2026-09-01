@@ -1,11 +1,11 @@
 {
     "schema": 1,
     "minLoader": 3,
-    "release": "2026-09-01.5",
-    "revision": "1d120cf327b1c46c091d642b57904e2a666ccb89",
+    "release": "2026-09-01.6",
+    "revision": "8a70fb723e7eab8b49a801b2f9406e2b743c066f",
     "files": {
         "hub.lua": {
-            "sha256": "f1cf107e2411ebb5653ada733472db2564e4356c184d9de52787b744354c2414",
+            "sha256": "dcb110d6ded8da3b7d2afbd004de25f3b52a63443610fe2d73ca3a4daa5f7674",
             "localName": "hub.lua"
         },
         "r3st_ui.lua": {
