@@ -1,4 +1,4 @@
--- R3ST Hub / Anims v2026-09-01.11 (2026-09-01)
+-- R3ST Hub / Anims v2026-09-01.13 (2026-09-01)
 -- M7-derived local animation pack browser: 21 custom, 35 Roblox, 24 UGC.
 -- Rung 3: writes stock Animate IDs and restarts its server-created Animator tracks.
 -- Server sees: normal replicated character tracks; no remotes fired.
@@ -6,6 +6,10 @@
 -- ENFORCEMENT=0, REPORTING=0, CLIENT INSPECTION=0, LOG MONITORING=0.
 -- Re-inject safe; K = restore originals + unload. RightShift = hide/show.
 -- Changelog:
+--   .13 restore searchable per-slot dropdowns and named slot-mix presets in the
+--      modern Slots tab. Presets freeze resolved ids and persist in config.
+--   .12 mounting the Anims tab only rebuilds its panel; it never re-applies the
+--      active animation set. Refresh remains an explicit user action.
 --   .11 split panel detach from controller disable. Hub route/module reloads
 --      remove only the Anims panel; applied animations persist. A clear ON/OFF
 --      control owns apply/restore, defaults OFF, and persists explicitly.
@@ -24,7 +28,7 @@
 --   .2 exclusive track controller; hard stop/destroy on switch and unload.
 --   .1 captured catalog, custom/Roblox/UGC tabs, per-slot sources, persistence.
 
-local BUILD_VERSION = "anims-2026-09-01.11"
+local BUILD_VERSION = "anims-2026-09-01.13"
 local GKEY = "__ANIMS_GUI"
 local CONFIG_FILE = "anims_config.json"
 local LOG_FILE = "logs/anims.log"
@@ -64,6 +68,8 @@ local Config = {
 	windowY = 0.5,
 	hidden = false,
 	slotSources = {},
+	slotIds = {},
+	presets = {},
 }
 
 local function loadConfig()
@@ -81,6 +87,24 @@ local function loadConfig()
 		for _, slot in ipairs(SLOT_ORDER) do
 			local source = saved.slotSources[slot]
 			if type(source) == "string" and PACK_BY_NAME[source] then Config.slotSources[slot] = source end
+		end
+	end
+	if type(saved.slotIds) == "table" then
+		for _, slot in ipairs(SLOT_ORDER) do
+			local id = saved.slotIds[slot]
+			if type(id) == "string" and id:match("^%d+$") then Config.slotIds[slot] = id end
+		end
+	end
+	if type(saved.presets) == "table" then
+		for name, slots in next, saved.presets do
+			if type(name) == "string" and type(slots) == "table" then
+				local copy = {}
+				for _, slot in ipairs(SLOT_ORDER) do
+					local id = slots[slot]
+					if type(id) == "string" and id:match("^%d+$") then copy[slot] = id end
+				end
+				if next(copy) then Config.presets[name] = copy end
+			end
 		end
 	end
 end
@@ -109,6 +133,8 @@ local state = {
 	status = nil,
 	search = nil,
 	tabButtons = {},
+	dropdown = nil,
+	dropdownConnection = nil,
 	originals = setmetatable({}, { __mode = "k" }),
 	owned = setmetatable({}, { __mode = "k" }),
 	animateBaseline = nil,
@@ -179,7 +205,7 @@ local function applyResolved(reason)
 	for _, slot in ipairs(SLOT_ORDER) do
 		local source = Config.slotSources[slot] or Config.selectedPack
 		local pack = PACK_BY_NAME[source]
-		local asset = pack and pack.slots[slot]
+		local asset = Config.slotIds[slot] or (pack and pack.slots[slot])
 		local animation = asset and resolveAnimation(character, slot)
 		if animation then
 			if state.originals[animation] == nil then state.originals[animation] = animation.AnimationId end
@@ -197,7 +223,10 @@ end
 local function applyPack(name)
 	if not PACK_BY_NAME[name] then return end
 	Config.selectedPack = name
-	for _, slot in ipairs(SLOT_ORDER) do Config.slotSources[slot] = name end
+	for _, slot in ipairs(SLOT_ORDER) do
+		Config.slotSources[slot] = name
+		Config.slotIds[slot] = nil
+	end
 	saveConfig()
 	if Config.enabled then applyResolved("pack " .. name) end
 end
@@ -358,48 +387,114 @@ local function buildPackCards(category)
 	state.list.CanvasSize = UDim2.fromOffset(0, (rows + 1) * 70 + 12)
 end
 
-local function cycleSource(slot, delta)
-	local current = Config.slotSources[slot] or Config.selectedPack
-	local index = 1
-	for i, pack in ipairs(PACKS) do if pack.name == current then index = i break end end
-	repeat
-		index = ((index - 1 + delta) % #PACKS) + 1
-	until PACKS[index].slots[slot]
-	Config.slotSources[slot] = PACKS[index].name
+local function closeDropdown()
+	if state.dropdownConnection then pcall(function() state.dropdownConnection:Disconnect() end) end
+	state.dropdownConnection = nil
+	if state.dropdown then pcall(function() state.dropdown:Destroy() end) end
+	state.dropdown = nil
+end
+
+local function slotAsset(slot)
+	if Config.slotIds[slot] then return Config.slotIds[slot], "custom id" end
+	local source = Config.slotSources[slot] or Config.selectedPack
+	local pack = PACK_BY_NAME[source]
+	return pack and pack.slots[slot], source
+end
+
+local function savePreset(name)
+	local slots = {}
+	for _, slot in ipairs(SLOT_ORDER) do
+		local asset = slotAsset(slot)
+		if asset then slots[slot] = tostring(asset) end
+	end
+	if not next(slots) then return false end
+	Config.presets[name] = slots
 	saveConfig()
-	render()
+	log("preset saved name=" .. name)
+	return true
+end
+
+local function openDropdown(rowFrame, slot, box)
+	closeDropdown()
+	local height = 190
+	local originX = box.AbsolutePosition.X - state.window.AbsolutePosition.X
+	local originY = rowFrame.AbsolutePosition.Y - state.window.AbsolutePosition.Y
+	local below = originY + rowFrame.AbsoluteSize.Y + 2
+	local top = below + height > state.window.AbsoluteSize.Y - 8 and math.max(8, originY - height - 2) or below
+	local panel = new("Frame", {
+		Size = UDim2.fromOffset(box.AbsoluteSize.X, height), Position = UDim2.fromOffset(originX, top),
+		BackgroundColor3 = COLORS.panel, BorderSizePixel = 0, ZIndex = 50,
+	}, state.window)
+	corner(panel, 7)
+	stroke(panel, COLORS.accent)
+	local results = new("ScrollingFrame", {
+		Size = UDim2.new(1, -8, 1, -8), Position = UDim2.fromOffset(4, 4), BackgroundTransparency = 1,
+		BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = COLORS.accent,
+		CanvasSize = UDim2.new(), ZIndex = 51,
+	}, panel)
+	state.dropdown = panel
+	state.dropdownConnection = state.list:GetPropertyChangedSignal("CanvasPosition"):Connect(closeDropdown)
+
+	local function fill()
+		for _, child in ipairs(results:GetChildren()) do child:Destroy() end
+		local query = string.lower(box.Text)
+		local y, count = 0, 0
+		for _, pack in ipairs(PACKS) do
+			local asset = pack.slots[slot]
+			if asset and (query == "" or string.lower(pack.name):find(query, 1, true)) then
+				local option = makeButton(results, "  " .. pack.name .. "  ·  " .. tostring(asset),
+					UDim2.new(1, -6, 0, 26), UDim2.fromOffset(3, y))
+				option.ZIndex = 52
+				option.TextXAlignment = Enum.TextXAlignment.Left
+				option.TextTruncate = Enum.TextTruncate.AtEnd
+				connect(option.Activated, function()
+					Config.slotSources[slot] = pack.name
+					Config.slotIds[slot] = nil
+					saveConfig()
+					closeDropdown()
+					render()
+					setStatus(SLOT_LABEL[slot] .. " uses " .. pack.name, true)
+				end)
+				y += 29
+				count += 1
+			end
+		end
+		if count == 0 then
+			new("TextLabel", { Text = "No pack matches this search", Size = UDim2.new(1, -12, 0, 36),
+				Position = UDim2.fromOffset(6, 6), BackgroundTransparency = 1, TextColor3 = COLORS.muted,
+				Font = Enum.Font.GothamMedium, TextSize = 11, ZIndex = 52 }, results)
+			y = 42
+		end
+		results.CanvasSize = UDim2.fromOffset(0, y + 4)
+	end
+	fill()
+	connect(box:GetPropertyChangedSignal("Text"), function() if state.dropdown == panel then fill() end end)
 end
 
 local function buildSlots()
-	local cols = columns()
-	local rows = 0
-	for i, slot in ipairs(SLOT_ORDER) do
-		local source = Config.slotSources[slot] or Config.selectedPack
-		local pack = PACK_BY_NAME[source]
-		local asset = pack and pack.slots[slot] or "?"
-		local size, pos, row = place(i, 54, cols)
-		rows = row
-		local rowFrame = new("Frame", { Size = size, Position = pos, BackgroundColor3 = COLORS.card, BorderSizePixel = 0 }, state.list)
+	local y = 6
+	for _, slot in ipairs(SLOT_ORDER) do
+		local asset, source = slotAsset(slot)
+		local rowFrame = new("Frame", { Size = UDim2.new(1, -12, 0, 42), Position = UDim2.fromOffset(6, y),
+			BackgroundColor3 = COLORS.card, BorderSizePixel = 0 }, state.list)
 		corner(rowFrame, 7)
 		stroke(rowFrame)
-		new("TextLabel", {
-			Text = SLOT_LABEL[slot], Size = UDim2.fromOffset(84, 54), Position = UDim2.fromOffset(14, 0),
+		new("TextLabel", { Text = SLOT_LABEL[slot], Size = UDim2.fromOffset(92, 42), Position = UDim2.fromOffset(14, 0),
 			BackgroundTransparency = 1, TextColor3 = COLORS.text, TextXAlignment = Enum.TextXAlignment.Left,
-			Font = Enum.Font.GothamBold, TextSize = 12,
+			Font = Enum.Font.GothamBold, TextSize = 12 }, rowFrame)
+		local box = new("TextBox", {
+			Text = "", PlaceholderText = tostring(source) .. "  ·  " .. tostring(asset or "unset"), ClearTextOnFocus = false,
+			Size = UDim2.new(1, -124, 0, 30), Position = UDim2.fromOffset(108, 6), BackgroundColor3 = COLORS.card2,
+			TextColor3 = COLORS.text, PlaceholderColor3 = COLORS.text, TextXAlignment = Enum.TextXAlignment.Left,
+			Font = Enum.Font.GothamMedium, TextSize = 11, BorderSizePixel = 0, ClipsDescendants = true,
 		}, rowFrame)
-		local picker = makeButton(rowFrame, "  " .. source .. "   ·   " .. tostring(asset),
-			UDim2.new(1, -112, 0, 36), UDim2.fromOffset(100, 9))
-		picker.TextXAlignment = Enum.TextXAlignment.Left
-		picker.TextTruncate = Enum.TextTruncate.AtEnd
-		connect(picker.Activated, function() cycleSource(slot, 1) end)
-		connect(picker.MouseButton2Click, function() cycleSource(slot, -1) end)
+		corner(box, 6)
+		stroke(box)
+		connect(box.Focused, function() openDropdown(rowFrame, slot, box) end)
+		y += 48
 	end
-	local y = (rows + 1) * 62 + 8
-	new("TextLabel", { Text = "Left click a slot to step forward through the packs that define it, right click to step back.",
-		Size = UDim2.new(1, -12, 0, 18), Position = UDim2.fromOffset(6, y), BackgroundTransparency = 1,
-		TextColor3 = COLORS.muted, TextXAlignment = Enum.TextXAlignment.Left, Font = Enum.Font.GothamMedium,
-		TextSize = 11 }, state.list)
-	local apply = makeButton(state.list, "apply this slot mix", UDim2.new(0.5, -9, 0, 38), UDim2.fromOffset(6, y + 24))
+
+	local apply = makeButton(state.list, "apply slot mix", UDim2.new(0.5, -9, 0, 36), UDim2.fromOffset(6, y + 2))
 	apply.BackgroundColor3 = COLORS.accent
 	apply.TextColor3 = COLORS.black
 	connect(apply.Activated, function()
@@ -407,19 +502,76 @@ local function buildSlots()
 		applyResolved("slot mix")
 		setStatus("applied custom slot mix", true)
 	end)
-	local all = makeButton(state.list, Config.selectedPack .. "  →  every slot", UDim2.new(0.5, -9, 0, 38), UDim2.new(0.5, 3, 0, y + 24))
-	all.TextTruncate = Enum.TextTruncate.AtEnd
-	connect(all.Activated, function()
-		for _, slot in ipairs(SLOT_ORDER) do Config.slotSources[slot] = Config.selectedPack end
+	local reset = makeButton(state.list, "reset to " .. Config.selectedPack, UDim2.new(0.5, -9, 0, 36), UDim2.new(0.5, 3, 0, y + 2))
+	reset.TextTruncate = Enum.TextTruncate.AtEnd
+	connect(reset.Activated, function()
+		for _, slot in ipairs(SLOT_ORDER) do
+			Config.slotSources[slot] = Config.selectedPack
+			Config.slotIds[slot] = nil
+		end
 		saveConfig()
 		render()
-		setStatus("all slots point at " .. Config.selectedPack .. " — press apply to commit")
+		setStatus("slots reset to " .. Config.selectedPack)
 	end)
-	state.list.CanvasSize = UDim2.fromOffset(0, y + 74)
+	y += 46
+
+	local nameBox = new("TextBox", { Text = "", PlaceholderText = "  preset name...", ClearTextOnFocus = false,
+		Size = UDim2.new(1, -142, 0, 34), Position = UDim2.fromOffset(6, y), BackgroundColor3 = COLORS.card2,
+		TextColor3 = COLORS.text, PlaceholderColor3 = COLORS.muted, Font = Enum.Font.GothamMedium,
+		TextSize = 12, BorderSizePixel = 0, TextXAlignment = Enum.TextXAlignment.Left }, state.list)
+	corner(nameBox, 6)
+	stroke(nameBox)
+	local save = makeButton(state.list, "save preset", UDim2.fromOffset(124, 34), UDim2.new(1, -130, 0, y))
+	connect(save.Activated, function()
+		local name = nameBox.Text:match("^%s*(.-)%s*$") or ""
+		if name == "" then setStatus("name the preset first") return end
+		if savePreset(name) then
+			nameBox.Text = ""
+			setStatus("saved preset " .. name, true)
+			render()
+		end
+	end)
+	y += 44
+
+	local names = {}
+	for name in next, Config.presets do names[#names + 1] = name end
+	table.sort(names)
+	for _, name in ipairs(names) do
+		local preset = Config.presets[name]
+		local count = 0
+		for _, slot in ipairs(SLOT_ORDER) do if preset[slot] then count += 1 end end
+		local row = new("Frame", { Size = UDim2.new(1, -12, 0, 38), Position = UDim2.fromOffset(6, y),
+			BackgroundColor3 = COLORS.card, BorderSizePixel = 0 }, state.list)
+		corner(row, 7)
+		new("TextLabel", { Text = name .. "  ·  " .. tostring(count) .. " slots", Size = UDim2.new(1, -190, 1, 0),
+			Position = UDim2.fromOffset(12, 0), BackgroundTransparency = 1, TextColor3 = COLORS.text,
+			TextXAlignment = Enum.TextXAlignment.Left, Font = Enum.Font.GothamBold, TextSize = 11 }, row)
+		local load = makeButton(row, "load", UDim2.fromOffset(72, 28), UDim2.new(1, -112, 0, 5))
+		connect(load.Activated, function()
+			for _, slot in ipairs(SLOT_ORDER) do
+				Config.slotIds[slot] = preset[slot]
+				Config.slotSources[slot] = nil
+			end
+			saveConfig()
+			if Config.enabled then applyResolved("preset " .. name) end
+			render()
+			setStatus("loaded preset " .. name, true)
+		end)
+		local remove = makeButton(row, "×", UDim2.fromOffset(28, 28), UDim2.new(1, -34, 0, 5))
+		connect(remove.Activated, function()
+			Config.presets[name] = nil
+			saveConfig()
+			render()
+			setStatus("deleted preset " .. name)
+		end)
+		y += 44
+	end
+	state.list.CanvasSize = UDim2.fromOffset(0, y + 8)
 end
 
 render = function()
 	if not state.alive or not state.list then return end
+	closeDropdown()
 	local wasBuilding = state.guiBuilding
 	state.guiBuilding = true
 	for _, child in ipairs(state.list:GetChildren()) do child:Destroy() end
@@ -601,6 +753,7 @@ local function buildGui()
 end
 
 local function detach()
+	closeDropdown()
 	for _, connection in ipairs(state.guiConnections) do pcall(function() connection:Disconnect() end) end
 	state.guiConnections = {}
 	if state.screen then pcall(function() state.screen:Destroy() end) end
@@ -613,7 +766,6 @@ local function mount(hostContract)
 	detach()
 	HOST = hostContract
 	buildGui()
-	if Config.enabled then applyResolved("panel remount verify") end
 	log("panel mounted embedded=" .. tostring(HOST ~= nil))
 	return true
 end
