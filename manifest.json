@@ -1,8 +1,8 @@
 {
     "schema":  1,
     "minLoader":  3,
-    "release":  "2026-09-01.4",
-    "revision":  "a2ab960e9167b48ee6d68e171afed0d330ee6d60",
+    "release":  "2026-09-01.5",
+    "revision":  "1d120cf327b1c46c091d642b57904e2a666ccb89",
     "files":  {
                   "hub.lua":  {
                                   "sha256":  "f1cf107e2411ebb5653ada733472db2564e4356c184d9de52787b744354c2414",
@@ -13,7 +13,7 @@
                                       "localName":  "r3st_ui.lua"
                                   },
                   "anims.lua":  {
-                                    "sha256":  "a6166651564bdcf783827914841d0c6df10c9069c267369c24a1725ca5fea947",
+                                    "sha256":  "6891de4e1bbdc3f3aa63ec88fa09820a9bc9a0de99c9f7260a17878b09950d4d",
                                     "localName":  "anims.lua"
                                 },
                   "telemetry.lua":  {
@@ -25,7 +25,7 @@
                                             "localName":  "blr_hub.lua"
                                         },
                   "games/gd2.lua":  {
-                                        "sha256":  "360f7c4ef16388be2736393ddddab8ba9a103d4108e3783c4bc3775a10318830",
+                                        "sha256":  "678cc147a4a539eb9f212821e0b7d9d202728633efae88b9671360250758de6a",
                                         "localName":  "gd2.lua"
                                     }
               },
