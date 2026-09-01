@@ -2,7 +2,7 @@
     "schema":  1,
     "minLoader":  3,
     "release":  "2026-09-01.1307",
-    "revision":  "PENDING",
+    "revision":  "33cac8d1fccfbd458bc18be966bb5caf8e738761",
     "files":  {
                   "hub.lua":  {
                                   "sha256":  "39914f21e266036f6bf8f84a495b53d64716a4e7e6be4277de3e9e717efe8977",
