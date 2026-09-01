@@ -36,7 +36,7 @@
 -- template must never mean rewriting a proven page of controls.
 
 local Kit = {}
-Kit.VERSION = "2026-09-01.3"
+Kit.VERSION = "2026-09-01.4"
 
 local UserInputService = game:GetService("UserInputService")
 local MarketplaceService = game:GetService("MarketplaceService")
@@ -139,8 +139,17 @@ function Kit.appear(frame, scaleObj, done)
 	local target = scaleObj and (scaleObj:GetAttribute("R3ST_TargetScale") or scaleObj.Scale) or 1
 	frame.Visible = true
 	if scaleObj then scaleObj.Scale = target * 0.96 end
-	local t = tween(frame, { BackgroundTransparency = frame:GetAttribute("R3ST_BaseTransparency") or 0 }, Kit.MOTION.base)
-	if scaleObj then tween(scaleObj, { Scale = target }, Kit.MOTION.base) end
+	-- Only a CanvasGroup can fade a whole panel; fading a plain Frame's
+	-- BackgroundTransparency makes the ground vanish while every child stays
+	-- fully opaque, which looks worse than not fading at all. So: fade when the
+	-- caller gave us something that can, scale-lift always.
+	local t
+	if frame:IsA("CanvasGroup") then
+		frame.GroupTransparency = 1
+		t = tween(frame, { GroupTransparency = 0 }, Kit.MOTION.base)
+	end
+	local st = scaleObj and tween(scaleObj, { Scale = target }, Kit.MOTION.base) or nil
+	t = t or st
 	if done then
 		if t then t.Completed:Once(done) else done() end
 	end
@@ -154,8 +163,10 @@ function Kit.vanish(frame, scaleObj, done)
 		return
 	end
 	local target = scaleObj and (scaleObj:GetAttribute("R3ST_TargetScale") or scaleObj.Scale) or 1
-	if scaleObj then tween(scaleObj, { Scale = target * 0.97 }, Kit.MOTION.fast) end
-	local t = tween(frame, { BackgroundTransparency = 1 }, Kit.MOTION.fast)
+	local t = scaleObj and tween(scaleObj, { Scale = target * 0.97 }, Kit.MOTION.fast) or nil
+	if frame:IsA("CanvasGroup") then
+		t = tween(frame, { GroupTransparency = 1 }, Kit.MOTION.fast) or t
+	end
 	local function finish()
 		frame.Visible = false
 		if scaleObj then scaleObj.Scale = target end
