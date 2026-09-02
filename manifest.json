@@ -1,8 +1,8 @@
 {
     "schema":  1,
     "minLoader":  3,
-    "release":  "2026-09-02.1",
-    "revision":  "bb2817ef87c40af503eff7238c63025deb12bee7",
+    "release":  "2026-09-02.2",
+    "revision":  "e02915c0686a0ea8e75f48e564a1470f25694588",
     "files":  {
                   "hub.lua":  {
                                   "sha256":  "053cf23f560ea35b2ed24c81ef6412892c36920c692c30dde25bada698795f08",
@@ -29,7 +29,7 @@
                                         "localName":  "gd2.lua"
                                     },
                   "games/dqr_hub.lua":  {
-                                            "sha256":  "98528f5bfdb625e1693b0760d32ed111c4c280ac68d92ba2e278a0d5bb9b5c20",
+                                            "sha256":  "673a84c7b8d9745012fe23665a63d00ca84c0bfc29ad6bb8e9b1333c62e89244",
                                             "localName":  "dqr_hub.lua"
                                         }
               },
