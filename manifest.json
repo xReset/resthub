@@ -1,11 +1,11 @@
 {
     "schema":  1,
     "minLoader":  3,
-    "release":  "2026-09-02.2",
-    "revision":  "e02915c0686a0ea8e75f48e564a1470f25694588",
+    "release":  "2026-09-02.0316",
+    "revision":  "03fa06bcb66a0755eaeba0a81310e311d24463e7",
     "files":  {
                   "hub.lua":  {
-                                  "sha256":  "053cf23f560ea35b2ed24c81ef6412892c36920c692c30dde25bada698795f08",
+                                  "sha256":  "176d6d970143ab6d4601cad66b89387e39177cefe8094abfdce2ac979ba482c8",
                                   "localName":  "hub.lua"
                               },
                   "r3st_ui.lua":  {
@@ -13,7 +13,7 @@
                                       "localName":  "r3st_ui.lua"
                                   },
                   "anims.lua":  {
-                                    "sha256":  "06cba43e53a8d15ffe4ea27be99876094bb305319f360bf18a82099a609fd7ba",
+                                    "sha256":  "946de9bb2c9a3438be3675ba5d59a3ebd8e749962e7432a819619b2cb4cc1156",
                                     "localName":  "anims.lua"
                                 },
                   "telemetry.lua":  {
