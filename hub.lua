@@ -1,7 +1,8 @@
--- R3ST Hub v2026-09-02.23 (2026-09-02)
+-- R3ST Hub v2026-09-02.24 (2026-09-02)
 -- Rung 2 (client-created UI only). Server sees: nothing; no game state or remotes touched.
 -- Re-inject safe: self-teardown on load; RightShift = show/hide; K = unload.
 -- Changelog:
+--   .24 Add the embedded Azure Latch awareness module.
 --   .23 Publish the kit-drawn Dungeon Quest Reborn module; detected Walkspeed is disabled.
 --   .22 Add the local embedded Volleyball Legends module.
 --   .20 One palette, motion, and a window you can actually resize.
@@ -112,7 +113,7 @@
 --   the moment the chunk returns, so nothing leaks into a later inject.
 --   Embedded today: gd2.lua, blr_hub.lua, anims.lua.
 
-local BUILD_VERSION = "2026-09-02.23"
+local BUILD_VERSION = "2026-09-02.24"
 local GKEY = "__R3ST_HUB"
 local HOST_KEY = "__R3ST_HOST"
 local CONFIG_FILE = "rbx_hub_template_config.json"
@@ -318,6 +319,9 @@ local REGISTRY = {
 	{ id = "volleyball-legends", moduleKey = "VolleyballLegends", name = "Volleyball Legends", cat = "Sports",
 		placeId = 73956553001240, gameId = 6931042565, file = "vbl_hub.lua", embed = true, gkey = "__VBL_HUB",
 		desc = "Directional hits, local hitbox tuning, air control and look ESP." },
+	{ id = "azure-latch", moduleKey = "AzureLatch", name = "Azure Latch", cat = "Sports",
+		placeId = 94647229517154, gameId = 6945584306, file = "azure_latch_hub.lua", embed = true, gkey = "__AZURE_LATCH_HUB",
+		desc = "Player and ball awareness from replicated match state." },
 	{ id = "critical-strike", moduleKey = "CriticalStrike", name = "Critical Strike", cat = "Fighting",
 		placeId = 8246089782, file = "cs_admin.lua", gkey = "__CS_ADMIN",
 		desc = "cs_core engine: projectile guidance classes, ally assist, admin bar." },

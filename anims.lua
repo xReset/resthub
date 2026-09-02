@@ -6,6 +6,14 @@
 -- ENFORCEMENT=0, REPORTING=0, CLIENT INSPECTION=0, LOG MONITORING=0.
 -- Re-inject safe; K = restore originals + unload. RightShift = hide/show.
 -- Changelog:
+--   .17 respawn resume verifies the write stuck and re-asserts while it has not.
+--      Roblox regenerates the Animate folders after the character replicates,
+--      so the single +1s apply was overwritten and needed a manual re-apply.
+--   .16 clearing and restoring a slot no longer require the id to still match
+--      what we wrote: a slot the game rewrote underneath us is still ours.
+--   .15 a slot the new selection has no asset for is restored to its stock id
+--      instead of keeping the previous pack's (switching off a 21-slot pack kept
+--      its 12 emotes). Respawn no longer re-applies while Anims is OFF.
 --   .13 restore searchable per-slot dropdowns and named slot-mix presets in the
 --      modern Slots tab. Presets freeze resolved ids and persist in config.
 --   .12 mounting the Anims tab only rebuilds its panel; it never re-applies the
@@ -28,7 +36,7 @@
 --   .2 exclusive track controller; hard stop/destroy on switch and unload.
 --   .1 captured catalog, custom/Roblox/UGC tabs, per-slot sources, persistence.
 
-local BUILD_VERSION = "anims-2026-09-01.14"
+local BUILD_VERSION = "anims-2026-09-02.17"
 local GKEY = "__ANIMS_GUI"
 local CONFIG_FILE = "anims_config.json"
 local LOG_FILE = "logs/anims.log"
@@ -249,22 +257,29 @@ local function applyResolved(reason)
 	local animate = character:FindFirstChild("Animate")
 	if state.animateBaseline == nil and animate and animate:IsA("LocalScript") then state.animateBaseline = animate.Disabled end
 	restartStockAnimate(character, false)
-	local changed = 0
+	local changed, cleared = 0, 0
 	for _, slot in ipairs(SLOT_ORDER) do
 		local source = Config.slotSources[slot] or Config.selectedPack
 		local pack = PACK_BY_NAME[source]
 		local asset = Config.slotIds[slot] or (pack and pack.slots[slot])
-		local animation = asset and resolveAnimation(character, slot)
-		if animation then
+		local animation = resolveAnimation(character, slot)
+		if animation and asset then
 			if state.originals[animation] == nil then state.originals[animation] = animation.AnimationId end
 			local value = "rbxassetid://" .. tostring(asset)
 			animation.AnimationId = value
 			state.owned[animation] = value
 			changed += 1
+		elseif animation and state.owned[animation] then
+			-- The new selection has no asset for this slot. Writing nothing would
+			-- leave the PREVIOUS pack's id playing here -- switching off a 21-slot
+			-- pack onto a 9-slot one kept its 12 emotes. Put the stock id back.
+			animation.AnimationId = state.originals[animation]
+			state.owned[animation] = nil
+			cleared += 1
 		end
 	end
 	state.currentCharacter = character
-	log(string.format("apply reason=%s selected=%s slots=%d", tostring(reason), Config.selectedPack, changed))
+	log(string.format("apply reason=%s selected=%s slots=%d cleared=%d", tostring(reason), Config.selectedPack, changed, cleared))
 	return changed > 0
 end
 
@@ -283,8 +298,12 @@ local function restoreOriginals()
 	local restored = 0
 	if state.currentCharacter then restartStockAnimate(state.currentCharacter, state.animateBaseline) end
 	for animation, original in next, state.originals do
-		if animation.Parent and animation.AnimationId == state.owned[animation] then
+		-- Not gated on AnimationId == owned: a slot the game rewrote underneath us
+		-- is still ours to hand back (references/anims-m7.md S5 -- that gate made a
+		-- 20-slot apply restore only 18).
+		if animation.Parent and state.owned[animation] then
 			animation.AnimationId = original
+			state.owned[animation] = nil
 			restored += 1
 		end
 	end
@@ -873,9 +892,43 @@ connect(UserInputService.InputBegan, function(input, processed)
 	end
 end)
 
-connect(localPlayer.CharacterAdded, function()
-	task.wait(1)
-	if state.alive then applyResolved("respawn resume") end
+-- Roblox regenerates the Animate folders from the avatar package AFTER the
+-- character replicates, so a single apply at +1s is written and then overwritten
+-- -- the log showed "respawn resume slots=9" followed by the user pressing
+-- re-apply 20s later. Assert the set, then verify it stuck and re-assert while it
+-- has not. Gated on enabled: a respawn must not re-arm after an explicit OFF.
+-- Scoped to one character: state.owned can still hold the previous rig's
+-- Animation instances until they are collected.
+local function driftedSlots(character)
+	local drifted = 0
+	for animation, value in next, state.owned do
+		if animation:IsDescendantOf(character) and animation.AnimationId ~= value then drifted += 1 end
+	end
+	return drifted
+end
+
+local function resumeAfterSpawn(character)
+	if not (state.alive and Config.enabled) then return end
+	character:WaitForChild("Animate", 10)
+	character:WaitForChild("Humanoid", 10)
+	task.wait(0.5)
+	if not (state.alive and Config.enabled) then return end
+	applyResolved("respawn resume")
+	for _, delay in ipairs({ 1.5, 3, 6 }) do
+		task.wait(delay)
+		if not (state.alive and Config.enabled and localPlayer.Character == character) then return end
+		local drifted = driftedSlots(character)
+		if drifted == 0 then
+			log("respawn resume held after " .. tostring(delay) .. "s")
+			return
+		end
+		log("respawn resume drifted=" .. tostring(drifted) .. " re-asserting")
+		applyResolved("respawn re-assert")
+	end
+end
+
+connect(localPlayer.CharacterAdded, function(character)
+	task.spawn(resumeAfterSpawn, character)
 end)
 
 task.defer(function()
