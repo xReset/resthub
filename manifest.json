@@ -1,11 +1,11 @@
 {
     "schema":  1,
     "minLoader":  3,
-    "release":  "2026-09-01.1307",
-    "revision":  "33cac8d1fccfbd458bc18be966bb5caf8e738761",
+    "release":  "2026-09-02.1",
+    "revision":  "bb2817ef87c40af503eff7238c63025deb12bee7",
     "files":  {
                   "hub.lua":  {
-                                  "sha256":  "39914f21e266036f6bf8f84a495b53d64716a4e7e6be4277de3e9e717efe8977",
+                                  "sha256":  "053cf23f560ea35b2ed24c81ef6412892c36920c692c30dde25bada698795f08",
                                   "localName":  "hub.lua"
                               },
                   "r3st_ui.lua":  {
@@ -21,13 +21,17 @@
                                         "localName":  "resthub_telemetry.lua"
                                     },
                   "games/blr_hub.lua":  {
-                                            "sha256":  "ee98a0e685596aec2d4071d6a89d9cafcae74f5b4f80a19ae93bec179391889e",
+                                            "sha256":  "f12fae2be321be266bff9532611d030ebef38e5a27a06c98b6b7f059064309d4",
                                             "localName":  "blr_hub.lua"
                                         },
                   "games/gd2.lua":  {
                                         "sha256":  "5ea8a268be68031348404ecd7e1537cea6e6a2d0d05574384bf9499a895618ed",
                                         "localName":  "gd2.lua"
-                                    }
+                                    },
+                  "games/dqr_hub.lua":  {
+                                            "sha256":  "98528f5bfdb625e1693b0760d32ed111c4c280ac68d92ba2e278a0d5bb9b5c20",
+                                            "localName":  "dqr_hub.lua"
+                                        }
               },
     "modules":  [
                     {
@@ -41,6 +45,12 @@
                         "gameId":  10173311467,
                         "placeId":  137228775845999,
                         "path":  "games/gd2.lua"
+                    },
+                    {
+                        "id":  "dungeon-quest-reborn",
+                        "gameId":  9931749389,
+                        "placeId":  77649408247578,
+                        "path":  "games/dqr_hub.lua"
                     }
                 ]
 }
