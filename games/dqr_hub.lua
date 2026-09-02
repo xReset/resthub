@@ -1,4 +1,4 @@
--- Dungeon Quest Reborn Hub v2026-09-02.24 (2026-09-02)
+-- Dungeon Quest Reborn Hub v2026-09-02.25 (2026-09-02)
 -- Rungs 1-6. Server sees: normal ability calls while Auto Abilities is ON, a normal readyUp call
 -- while Auto Ready is ON, and our own character
 -- motion (we hold network ownership of our HumanoidRootPart — network_ownership.txt, OWNED PARTS).
@@ -25,6 +25,7 @@
 -- DETECTED 2026-09-02: Walkspeed booted at 132 immediately before server anti-cheat kick.
 -- Walkspeed is disabled until new evidence establishes a server-accepted path.
 -- Changelog:
+--  .25 Fail closed outside the DQR universe/lobby/level identity.
 --  .24 Disable detected Walkspeed; move every active control onto the shared R3ST kit.
 --  .23 Removed teleport re-injection and its coupled broken-replay auto-rejoin path.
 --  .17 LeftAlt toggles Auto Abilities.
@@ -46,7 +47,7 @@
 --   .7 telegraph overlay, run HUD, drop feed, boss integrity guard, auto-ready
 --   .1 mob ESP/chams, walkspeed
 
-local BUILD_VERSION = "2026-09-02.24"
+local BUILD_VERSION = "2026-09-02.25"
 local GKEY = "__DQR_HUB"
 
 -- hub.lua publishes __R3ST_HOST immediately before running us and clears it the
@@ -66,6 +67,10 @@ local UserInputService = game:GetService("UserInputService")
 local HttpService = game:GetService("HttpService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
+
+local EXPECTED_GAME = 9931749389
+local EXPECTED_PLACES = { [77649408247578] = true, [85776757589518] = true }
+if game.GameId ~= EXPECTED_GAME and not EXPECTED_PLACES[game.PlaceId] then return end
 
 local CoreGui = game:GetService("CoreGui")
 if type(cloneref) == "function" then
