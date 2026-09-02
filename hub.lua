@@ -2,6 +2,10 @@
 -- Rung 2 (client-created UI only). Server sees: nothing; no game state or remotes touched.
 -- Re-inject safe: self-teardown on load; RightShift = show/hide; K = unload.
 -- Changelog:
+--   .25 every host page this place built autoloads on inject, and modules no
+--      longer unmount each other. Each host page owns its own frame, so the
+--      game module and Anims stay mounted and armed while the user reads
+--      another tab; opening a tab is never what loads a module.
 --   .24 Add the embedded Azure Latch awareness module.
 --   .23 Publish the kit-drawn Dungeon Quest Reborn module; detected Walkspeed is disabled.
 --   .22 Add the local embedded Volleyball Legends module.
@@ -113,7 +117,7 @@
 --   the moment the chunk returns, so nothing leaks into a later inject.
 --   Embedded today: gd2.lua, blr_hub.lua, anims.lua.
 
-local BUILD_VERSION = "2026-09-02.24"
+local BUILD_VERSION = "2026-09-02.25"
 local GKEY = "__R3ST_HUB"
 local HOST_KEY = "__R3ST_HOST"
 local CONFIG_FILE = "rbx_hub_template_config.json"
@@ -153,7 +157,11 @@ local content
 local sidebar
 local blur
 local root
-local mountedModule -- { gkey, name, id } while a module is embedded
+-- id -> { gkey, name, id } for every module currently embedded. A map, not one
+-- slot: each host page owns its own frame, so a module stays mounted and armed
+-- while the user reads another tab. Switching pages must never disarm a module.
+local mountedModules = {}
+local lastMounted -- the most recent one, for reload()/status() with no target
 -- id -> mount(force) and id -> registry entry, for the agent reload API (.13).
 -- Only pages that were actually built get in here, and a page is only built for
 -- a module that passed the identity gate -- so the API inherits S2 isolation
@@ -693,9 +701,10 @@ end
 -- exist at all -- and where the ones that do are stale leftovers. That is what
 -- made Ghost Driver report "missing" while a v.9 anims.lua loaded and opened its
 -- own window. The Explorer folder is checked first, every time.
-local function unmountActive()
-	if not mountedModule then return end
-	local handle = G[mountedModule.gkey]
+local function unmountModule(id)
+	local record = mountedModules[id]
+	if not record then return end
+	local handle = G[record.gkey]
 	if type(handle) == "table" then
 		-- A controller that exposes detach/mount explicitly separates its panel
 		-- from its live state. Route changes own the panel only.
@@ -703,8 +712,13 @@ local function unmountActive()
 		if type(fn) == "function" then pcall(fn) end
 	end
 	local persistent = type(handle) == "table" and type(handle.detach) == "function"
-	hubLog("info", (persistent and "detached " or "unmounted ") .. mountedModule.name)
-	mountedModule = nil
+	hubLog("info", (persistent and "detached " or "unmounted ") .. record.name)
+	mountedModules[id] = nil
+	if lastMounted and lastMounted.id == id then lastMounted = nil end
+end
+
+local function unmountAll()
+	for id in pairs(mountedModules) do unmountModule(id) end
 end
 
 local function runModule(entry, host)
@@ -714,7 +728,9 @@ local function runModule(entry, host)
 		return false, err
 	end
 	if host then
-		unmountActive()
+		-- Only this entry's own previous instance: another module in another host
+		-- page keeps running. Loading one module never disarms another.
+		unmountModule(entry.id)
 		for _, child in ipairs(host:GetChildren()) do child:Destroy() end
 		G[HOST_KEY] = {
 			host = host,
@@ -737,7 +753,8 @@ local function runModule(entry, host)
 			hubLog("warn", "Anims panel remount failed: " .. tostring(mountErr))
 			return false, tostring(mountErr)
 		end
-		mountedModule = { gkey = entry.gkey, name = entry.name, id = entry.id }
+		lastMounted = { gkey = entry.gkey, name = entry.name, id = entry.id }
+		mountedModules[entry.id] = lastMounted
 		hubLog("info", "module remounted " .. entry.file .. " (controller preserved)")
 		return true
 	end
@@ -749,7 +766,8 @@ local function runModule(entry, host)
 	end
 	hubLog("info", "module loaded " .. entry.file .. (host and " (embedded)" or " (standalone)"))
 	if host and entry.gkey then
-		mountedModule = { gkey = entry.gkey, name = entry.name, id = entry.id }
+		lastMounted = { gkey = entry.gkey, name = entry.name, id = entry.id }
+		mountedModules[entry.id] = lastMounted
 	end
 	if entry.placeId then noteRecent(entry) end
 	return true
@@ -1022,7 +1040,7 @@ local function makeHostPage(name, entry, subtitle)
 	-- an agent that cannot tell a remount from a compile error will report a
 	-- broken build as shipped.
 	local function mount(force)
-		if mountedModule and mountedModule.gkey == entry.gkey and not force then return true end
+		if mountedModules[entry.id] and not force then return true end
 		status.Text = "loading " .. entry.file .. "..."
 		status.TextColor3 = C.dim
 		local ok, err = runModule(entry, host)
@@ -1341,7 +1359,7 @@ end
 destroy = function()
 	if not alive then return end
 	alive = false
-	unmountActive()
+	unmountAll()
 	for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
 	if screen then screen:Destroy() end
 	if blur then blur:Destroy() end
@@ -1431,7 +1449,12 @@ end
 local function hubStatus()
 	local lines = {
 		"hub build " .. BUILD_VERSION,
-		"mounted: " .. (mountedModule and (tostring(mountedModule.id) .. " / " .. mountedModule.name) or "none"),
+		"mounted: " .. (function()
+			local names = {}
+			for id, rec in pairs(mountedModules) do names[#names + 1] = tostring(id) .. " / " .. rec.name end
+			table.sort(names)
+			return #names > 0 and table.concat(names, ", ") or "none"
+		end)(),
 		"place " .. tostring(game.PlaceId) .. " universe " .. tostring(game.GameId),
 		"targets: " .. table.concat(reloadTargets(), ", "),
 	}
@@ -1457,10 +1480,10 @@ local function reload(target)
 		return reloadHub()
 	end
 	if want == "" or want == "active" then
-		if not (mountedModule and mountedModule.id) then
+		if not (lastMounted and lastMounted.id) then
 			return reloadResult("FAILED nothing mounted -- pass a target: " .. table.concat(reloadTargets(), ", "))
 		end
-		return reloadModule(mountedModule.id)
+		return reloadModule(lastMounted.id)
 	end
 	return reloadModule(want)
 end
@@ -1669,32 +1692,29 @@ if not activeEntry then
 		.. " that entry is missing its gameId.")
 end
 
--- Autoload is evaluated only after identity matching (hub skill S2.6).
-if activeEntry and state.autoOpen then
+-- Autoload is evaluated only after identity matching (hub skill S2.6), and it
+-- covers EVERY host page this place built -- the game module and Anims alike.
+-- A module the hub decided belongs here must be loaded and armed on inject; it
+-- is not the user's job to open its tab first. Foreign modules never get a host
+-- page, so this policy cannot reach one.
+if state.autoOpen then
 	task.defer(function()
 		if not alive then return end
-		if activeEntry.embed and mountActiveGame then
+		if activeEntry and activeEntry.embed and mountActiveGame then
 			setPage(activeEntry.name)
-			mountActiveGame(false)
-		else
-			runModule(activeEntry, nil)
 		end
+		for id, mount in pairs(hostMounts) do
+			local ok, err = mount(false)
+			if not ok then hubLog("warn", "autoload " .. tostring(id) .. " failed: " .. tostring(err)) end
+		end
+		-- An identity-matched module that is not embedded still opens its own
+		-- window on inject rather than waiting behind a button.
+		if activeEntry and not activeEntry.embed then runModule(activeEntry, nil) end
 	end)
 end
 
--- Mount whichever host page the user is already on, so reopening the hub on the
--- game tab shows the controls instead of an empty frame.
-task.defer(function()
-	if not alive then return end
-	if activeEntry and activeEntry.embed and state.page == activeEntry.name and mountActiveGame then
-		mountActiveGame(false)
-	elseif state.page == "Anims" then
-		mountAnims(false)
-	end
-end)
-
--- Mount on first visit to a host page rather than at boot: nothing loads a
--- module the user has not asked for.
+-- Nav clicks are now a no-op for an already-mounted module (mount() returns
+-- early), so these only cover the case where autoload is off or a mount failed.
 if navButtons[ "Anims" ] then
 	connect(navButtons["Anims"].Activated, function() mountAnims(false) end)
 end
