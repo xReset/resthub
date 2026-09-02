@@ -2,6 +2,10 @@
 -- Rung 2 (client-created UI only). Server sees: nothing; no game state or remotes touched.
 -- Re-inject safe: self-teardown on load; RightShift = show/hide; K = unload.
 -- Changelog:
+--   .26 a report now carries logs/resthub_loader.log and EVERY mounted module's
+--      log, not just the game's. A friend on the public loadstring gets their
+--      build from the release, so "which manifest verified" is the first
+--      question their report has to answer.
 --   .25 every host page this place built autoloads on inject, and modules no
 --      longer unmount each other. Each host page owns its own frame, so the
 --      game module and Anims stay mounted and armed while the user reads
@@ -117,7 +121,7 @@
 --   the moment the chunk returns, so nothing leaks into a later inject.
 --   Embedded today: gd2.lua, blr_hub.lua, anims.lua.
 
-local BUILD_VERSION = "2026-09-02.25"
+local BUILD_VERSION = "2026-09-02.26"
 local GKEY = "__R3ST_HUB"
 local HOST_KEY = "__R3ST_HOST"
 local CONFIG_FILE = "rbx_hub_template_config.json"
@@ -1528,12 +1532,40 @@ local function buildReport(note)
 		("executor  : %s"):format((identifyexecutor and select(1, pcall(identifyexecutor))) and identifyexecutor() or "unknown"),
 		("note      : %s"):format(note and note ~= "" and note or "(none given)"),
 		("status    : %s"):format(tostring(hubStatus())),
+		("mounted   : %s"):format((function()
+			local names = {}
+			for id in pairs(mountedModules) do names[#names + 1] = tostring(id) end
+			table.sort(names)
+			return #names > 0 and table.concat(names, ", ") or "none"
+		end)()),
 		"", "---- logs/rbx_hub.log ----", tailFile("logs/rbx_hub.log", REPORT_TAIL),
 	}
+	-- The loader log first: someone running the public loadstring gets their
+	-- build from the release, so "which manifest did you actually fetch, and did
+	-- it verify" is the question their bug report has to answer. Without it a
+	-- stale-release report reads exactly like a code bug.
+	if isfile and isfile("logs/resthub_loader.log") then
+		parts[#parts + 1] = "---- logs/resthub_loader.log ----"
+		parts[#parts + 1] = tailFile("logs/resthub_loader.log", REPORT_TAIL)
+	end
+	-- Every mounted module's log, not just the game's: since .25 more than one
+	-- module is mounted at a time, and the broken one is often the other one.
+	local seen = {}
+	for id in pairs(mountedModules) do
+		local entry = hostEntries[id]
+		local name = entry and entry.file:gsub("%.lua$", "")
+		if name and not seen[name] then
+			seen[name] = true
+			parts[#parts + 1] = ("---- logs/%s.log ----"):format(name)
+			parts[#parts + 1] = tailFile(("logs/%s.log"):format(name), REPORT_TAIL)
+		end
+	end
 	if activeEntry then
 		local name = activeEntry.file:gsub("%.lua$", "")
-		parts[#parts + 1] = ("---- logs/%s.log ----"):format(name)
-		parts[#parts + 1] = tailFile(("logs/%s.log"):format(name), REPORT_TAIL)
+		if not seen[name] then
+			parts[#parts + 1] = ("---- logs/%s.log ----"):format(name)
+			parts[#parts + 1] = tailFile(("logs/%s.log"):format(name), REPORT_TAIL)
+		end
 	end
 	return table.concat(parts, "\n")
 end
