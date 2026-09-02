@@ -11,6 +11,7 @@ $Copies = [ordered]@{
     "scripts\anims.lua" = "anims.lua"
     "games\blue-lock-rivals\scripts\blr_hub.lua" = "games\blr_hub.lua"
     "games\ghost-driver\scripts\gd2.lua" = "games\gd2.lua"
+    "games\dungeon-quest-reborn\scripts\dqr_hub.lua" = "games\dqr_hub.lua"
 }
 foreach ($pair in $Copies.GetEnumerator()) {
     $from = Join-Path $Source $pair.Key
@@ -28,6 +29,7 @@ $LocalNames = [ordered]@{
     "telemetry.lua" = "resthub_telemetry.lua"
     "games/blr_hub.lua" = "blr_hub.lua"
     "games/gd2.lua" = "gd2.lua"
+    "games/dqr_hub.lua" = "dqr_hub.lua"
 }
 foreach ($path in $LocalNames.Keys) {
     $native = Join-Path $Root ($path -replace '/', '\')
@@ -42,7 +44,8 @@ $Manifest = [ordered]@{
     files = $Files
     modules = @(
         [ordered]@{ id = "blue-lock-rivals"; gameId = 6325068386; placeId = 18668065416; path = "games/blr_hub.lua" },
-        [ordered]@{ id = "ghost-driver"; gameId = 10173311467; placeId = 137228775845999; path = "games/gd2.lua" }
+        [ordered]@{ id = "ghost-driver"; gameId = 10173311467; placeId = 137228775845999; path = "games/gd2.lua" },
+        [ordered]@{ id = "dungeon-quest-reborn"; gameId = 9931749389; placeId = 77649408247578; path = "games/dqr_hub.lua" }
     )
 }
 $json = $Manifest | ConvertTo-Json -Depth 8

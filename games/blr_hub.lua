@@ -260,7 +260,7 @@
 --       resumes; the remote-firing ones are named in the boot log instead of
 --       being forced OFF (deliberate override of potassium-dev 0.2b).
 
-local BUILD_VERSION = "2026-09-01.25"
+local BUILD_VERSION = "2026-09-01.28"
 local EXPECTED_PLACE = 18668065416
 -- Universe id. A VIP / private server is the SAME experience but the client can
 -- land on a different PlaceId inside it, so a PlaceId-only gate fails closed in
@@ -354,6 +354,15 @@ local DEFAULTS = {
 	-- you because the match assigned a different style is exactly the surprise
 	-- the ARMED boot line exists to prevent.
 	Styles = {},
+	-- Style spinner (.26). rung 6 by nature: StyleService.RF.SpinStyle is the
+	-- exact RemoteFunction the game's own SPIN button invokes (1174:533), and it
+	-- SPENDS the user's currency, so it is never armed by a saved flag -- the run
+	-- is started by a button press and only these numbers persist.
+	SpinTarget = "",        -- PlrStyles key, e.g. "Kaiser" (1174:846 sends the same key)
+	SpinType = "Normal",    -- Normal | Lucky | Event (1174:550, :578, :594)
+	SpinDelay = 1.0,        -- seconds between invokes; the game's own button debounces 0.5 (1174:487)
+	SpinMoneyFloor = 0,     -- stop before Money drops below this
+	SpinMax = 0,            -- hard cap on spins per run; 0 = until target or broke
 	CFLocker = false, -- rung 6: TeamService.Select:Fire("Home"/"Away", "CF")
 	CFFallbackWhite = true, -- blue first, ALWAYS; white only once blue is taken
 	Tab = "Controls",
@@ -511,6 +520,13 @@ local S = {
 	lockRunning = false,
 	style = nil,          -- the style whose profile the live CFG numbers belong to
 	sliderRedraw = {},    -- key -> the kit's redraw for that slider, for a live refresh
+	spin = {              -- style spinner run state; never persisted (.26)
+		running = false,
+		count = 0,
+		fails = 0,
+		last = nil,
+		status = "idle",
+	},
 }
 
 -- Write the live numbers back into the style they belong to. Called from
@@ -1794,6 +1810,269 @@ local KIT_PATHS = { "../scripts/r3st_ui.lua", "r3st_ui.lua", "scripts/r3st_ui.lu
 -- Standalone we resolve it ourselves. Explorer folder first: Potassium roots the
 -- file API at workspace\, so a bare readfile reads the wrong folder (hub skill
 -- S11).
+--======================================================================
+-- Style spinner (.26) -- rung 6, and honest about it
+--
+-- Every fact here is the game's own client code, not a guess:
+--   * ReplicatedStorage.Packages.Knit.Services.StyleService.RF.SpinStyle is the
+--     RemoteFunction behind `StyleService:SpinStyle(kind)` at 1174:533. It
+--     returns the acquired style KEY as a string -- 1174:271
+--     `OnAcquired(p36: string)` and 1174:545 pass its result straight on.
+--   * RF.SetTargetRollStyle is what the rarity list's own button invokes
+--     (1174:846, "Selected X! Chances increased slightly"). It biases the roll;
+--     it does NOT guarantee the roll, so the loop still has to spin.
+--   * `kind` is one of "Normal" / "Lucky" / "Event" -- the three
+--     setupSpinButton call sites, 1174:550, :578, :594.
+--   * A Normal spin consumes PlayerData.Data.Spins, and when that is 0 it costs
+--     $2,500 of Data.Money: 1174:565 prints `SPINS LEFT: {Money // 2500}`.
+--   * The server refuses outright while no slot is equipped -- 1174:495 bails on
+--     SlotEquipped == "Slot0" before ever invoking.
+-- The spin is server-authoritative in full: we send the same call the button
+-- sends and read the same replicated data the UI reads. Nothing about the odds
+-- is client-side, so this automates the clicking and nothing else.
+local SPIN_KINDS = { "Normal", "Lucky", "Event" }
+local SPIN_MONEY_COST = 2500 -- 1174:565
+
+local function rsChild(...)
+	local node = ReplicatedStorage
+	for _, name in ipairs({ ... }) do
+		if not node then
+			return nil
+		end
+		node = node:FindFirstChild(name)
+	end
+	return node
+end
+
+local function styleRF()
+	return rsChild("Packages", "Knit", "Services", "StyleService", "RF")
+end
+
+local function requireShared(...)
+	local mod = rsChild(...)
+	if not mod or not mod:IsA("ModuleScript") then
+		return nil
+	end
+	local ok, value = pcall(require, mod)
+	if ok and type(value) == "table" then
+		return value
+	end
+	return nil
+end
+
+-- ClientGlobals.PlayerData is the replicated player document every UI reads
+-- (1174:54, 0441:27). Pure read.
+local function playerData()
+	local globals = requireShared("ClientModules", "ClientGlobals")
+	local pd = globals and globals.PlayerData
+	if type(pd) == "table" and type(pd.Data) == "table" then
+		return pd.Data
+	end
+	return nil
+end
+
+local function plrStyles()
+	return requireShared("Shared", "PlrStyles")
+end
+
+local function eventKey()
+	local cfg = requireShared("Shared", "Configs", "StyleEventData")
+	return cfg and cfg.Enabled and cfg.Event or nil
+end
+
+-- How many more spins the current wallet can pay for, and what it is short of.
+local function spinBudget(data, kind)
+	if kind == "Lucky" then
+		return tonumber(data.LuckySpins) or 0, "lucky spins"
+	end
+	if kind == "Event" then
+		local key = eventKey()
+		local pool = key and type(data.EventSpins) == "table" and data.EventSpins[key]
+		return tonumber(pool) or 0, "event spins"
+	end
+	local free = tonumber(data.Spins) or 0
+	local money = tonumber(data.Money) or 0
+	local floor = math.max(0, tonumber(CFG.SpinMoneyFloor) or 0)
+	local buyable = math.floor(math.max(0, money - floor) / SPIN_MONEY_COST)
+	return free + buyable, "cash"
+end
+
+-- A locked slot is the user saying "do not overwrite this one". The game's own
+-- SPIN button does NOT test it (setupSpinButton at 1174:486 checks Slot0 and the
+-- rarity confirm, nothing else), so whether a locked slot survives a spin is the
+-- server's business and invisible from here. Refuse the spin ourselves rather
+-- than find out with the user's style.
+--   1174:942 reads StyleSlots.Locked[SlotEquipped]; 1174:960 is the LOCK button.
+local function slotLocked(data)
+	local slots = data and data.StyleSlots
+	if type(slots) ~= "table" then
+		return false
+	end
+	local slot = slots.SlotEquipped
+	local locked = slots.Locked
+	if type(slot) ~= "string" or type(locked) ~= "table" then
+		return false
+	end
+	return locked[slot] == true
+end
+
+local function equippedStyle(data)
+	local slots = data and data.StyleSlots
+	if type(slots) ~= "table" then
+		return nil
+	end
+	local slot = slots.SlotEquipped
+	return type(slot) == "string" and slots[slot] or nil
+end
+
+local function spinStop(reason)
+	local wasRunning = S.spin.running
+	S.spin.running = false
+	S.spin.status = reason
+	if wasRunning then
+		log("spin stop: " .. reason .. " after " .. tostring(S.spin.count) .. " spins")
+	end
+end
+
+local function spinStart()
+	if S.spin.running then
+		return
+	end
+	local target = CFG.SpinTarget
+	if type(target) ~= "string" or target == "" then
+		S.spin.status = "pick a style first"
+		return
+	end
+	local rf = styleRF()
+	local spinFn = rf and rf:FindFirstChild("SpinStyle")
+	if not spinFn then
+		S.spin.status = "StyleService.RF.SpinStyle missing"
+		log("spin: " .. S.spin.status)
+		return
+	end
+	local data = playerData()
+	if not data then
+		S.spin.status = "PlayerData not loaded yet"
+		return
+	end
+	local slots = data.StyleSlots
+	if type(slots) == "table" and slots.SlotEquipped == "Slot0" then
+		-- 1174:495 -- the game itself refuses here, so the loop would burn calls.
+		S.spin.status = "no slot equipped -- pick a slot in the Style menu"
+		return
+	end
+	if slotLocked(data) then
+		S.spin.status = "slot " .. tostring(slots.SlotEquipped) .. " is LOCKED -- unlock it or switch slots"
+		log("spin refused: " .. S.spin.status)
+		return
+	end
+	if equippedStyle(data) == target then
+		S.spin.status = "already equipped: " .. target
+		return
+	end
+
+	-- The spin has no slot argument: the server writes the result into whatever
+	-- StyleSlots.SlotEquipped says (1174:472 re-reads it on every StyleSlots
+	-- change). So the run is pinned to the slot it started on, and a slot switch
+	-- mid-run stops it rather than silently rolling over a different slot.
+	local runSlot = slots and slots.SlotEquipped
+
+	S.spin.running = true
+	S.spin.count = 0
+	S.spin.fails = 0
+	S.spin.last = nil
+	S.spin.status = "spinning for " .. target
+	log("spin start target=" .. target .. " kind=" .. tostring(CFG.SpinType)
+		.. " delay=" .. string.format("%.2f", tonumber(CFG.SpinDelay) or 1)
+		.. " floor=" .. tostring(CFG.SpinMoneyFloor) .. " cap=" .. tostring(CFG.SpinMax))
+
+	local targetRF = rf:FindFirstChild("SetTargetRollStyle")
+	if targetRF then
+		local ok, err = pcall(function()
+			return targetRF:InvokeServer(target)
+		end)
+		log("spin target set ok=" .. tostring(ok) .. (ok and "" or (" err=" .. tostring(err))))
+	end
+
+	task.spawn(function()
+		-- An error anywhere in this loop kills the thread SILENTLY: task.spawn
+		-- swallows it, S.spin.running stays true, and the panel reads RUNNING
+		-- forever while nothing spins. Catch it, log it, clear the flag.
+		local ranOk, runErr = xpcall(function()
+		while S.alive and S.spin.running do
+			local live = playerData()
+			if not live then
+				spinStop("PlayerData lost")
+				break
+			end
+			local liveSlots = live.StyleSlots
+			local liveSlot = type(liveSlots) == "table" and liveSlots.SlotEquipped or nil
+			if liveSlot ~= runSlot then
+				spinStop("slot changed (" .. tostring(runSlot) .. " -> " .. tostring(liveSlot) .. ")")
+				break
+			end
+			if slotLocked(live) then
+				spinStop("slot " .. tostring(runSlot) .. " was locked mid-run")
+				break
+			end
+
+			local kind = CFG.SpinType
+			local budget, currency = spinBudget(live, kind)
+			if budget <= 0 then
+				spinStop("out of " .. currency)
+				break
+			end
+			local cap = tonumber(CFG.SpinMax) or 0
+			if cap > 0 and S.spin.count >= cap then
+				spinStop("hit the " .. tostring(cap) .. "-spin cap")
+				break
+			end
+
+			local ok, result = pcall(function()
+				return spinFn:InvokeServer(kind)
+			end)
+			if ok and type(result) == "string" then
+				S.spin.fails = 0
+				S.spin.count = S.spin.count + 1
+				S.spin.last = result
+				S.spin.status = "rolled " .. result .. " (" .. tostring(S.spin.count) .. ")"
+				-- One line per roll. The first live run (13:56, build .27) logged
+				-- only `spin start` and then nothing: the rolls were visible ONLY
+				-- as the profile watcher's `style -> X` lines, and the run's end
+				-- was not in the log at all. A run has to be readable after the
+				-- fact from its own lines, not inferred from another feature's.
+				log(string.format("spin #%d %s -> %s  ($%d, %d free)",
+					S.spin.count, kind, result,
+					math.floor(tonumber(live.Money) or 0),
+					math.floor(tonumber(live.Spins) or 0)))
+				if result == target then
+					spinStop("GOT " .. target .. " in " .. tostring(S.spin.count) .. " spins")
+					break
+				end
+			else
+				-- The server returns nothing when it declines (no funds, no slot,
+				-- rate limit). Three in a row is a refusal, not a hiccup -- but do
+				-- not diagnose WHY from here (potassium-dev 5.4b).
+				S.spin.fails = S.spin.fails + 1
+				log("spin declined #" .. tostring(S.spin.fails) .. " ok=" .. tostring(ok)
+					.. " result=" .. tostring(result))
+				if S.spin.fails >= 3 then
+					spinStop("server declined 3 spins in a row")
+					break
+				end
+			end
+
+			task.wait(math.max(0.5, tonumber(CFG.SpinDelay) or 1))
+		end
+		end, debug.traceback)
+		if not ranOk then
+			S.spin.status = "loop error -- see the log"
+			log("spin loop error: " .. tostring(runErr))
+		end
+		S.spin.running = false
+	end)
+end
+
 local function loadKit()
 	if HOST and type(HOST.ui) == "table" then
 		return HOST.ui
@@ -1898,7 +2177,7 @@ local function ensureGui()
 		end,
 	})
 
-	local TABS = { "Controls", "Settings" }
+	local TABS = { "Controls", "Spinner", "Settings" }
 	local pages = {}
 	local repaintTabs
 
@@ -2135,6 +2414,121 @@ local function ensureGui()
 	end)
 
 	--======================================================================
+	-- Spinner
+	--======================================================================
+	local spinPage = pages.Spinner
+
+	W.section(spinPage, "Auto spinner")
+	W.statusRow(spinPage, function()
+		local data = playerData()
+		if not data then
+			return "PlayerData not loaded"
+		end
+		local budget, currency = spinBudget(data, CFG.SpinType)
+		local slots = data.StyleSlots
+		local slot = type(slots) == "table" and slots.SlotEquipped or "?"
+		return string.format(
+			"target %s  ·  %s spin  ·  %s %s left\n$%s  ·  free spins %s  ·  rolling into %s%s (%s)",
+			CFG.SpinTarget ~= "" and CFG.SpinTarget or "(none)",
+			tostring(CFG.SpinType),
+			tostring(budget), currency,
+			tostring(math.floor(tonumber(data.Money) or 0)),
+			tostring(math.floor(tonumber(data.Spins) or 0)),
+			tostring(slot),
+			slotLocked(data) and " [LOCKED]" or "",
+			tostring(equippedStyle(data) or "?")
+		)
+	end)
+	W.statusRow(spinPage, function()
+		return (S.spin.running and "RUNNING" or "stopped") .. "  ·  " .. tostring(S.spin.status)
+			.. "  ·  spins this run " .. tostring(S.spin.count)
+			.. (S.spin.last and ("  ·  last " .. tostring(S.spin.last)) or "")
+	end)
+
+	local kindButton
+	kindButton = W.button(spinPage, "Spin type: " .. tostring(CFG.SpinType),
+		"Normal costs $2,500 once free spins run out; Lucky and Event spend their own counters.", function()
+			local index = 1
+			for i, name in ipairs(SPIN_KINDS) do
+				if name == CFG.SpinType then
+					index = i
+				end
+			end
+			CFG.SpinType = SPIN_KINDS[(index % #SPIN_KINDS) + 1]
+			kindButton.Text = "Spin type: " .. CFG.SpinType
+			saveConfig()
+		end)
+	W.button(spinPage, "Start spinning", "Spins until the target drops, the cap is hit, or the wallet runs out.", spinStart)
+	W.button(spinPage, "Stop", "Stops after the spin already in flight.", function()
+		spinStop("stopped by hand")
+	end)
+
+	slider(spinPage, "SpinDelay", "Delay between spins", {
+		min = 0.5, max = 5.0, step = 0.25,
+		tradeoff = "The game's own SPIN button refuses to fire faster than 0.5s (1174:487). Going near that floor is a call rate no hand produces -- keep it at 1s or above unless you are testing.",
+		fmt = function(v) return string.format("%.2f s", v) end,
+	})
+	slider(spinPage, "SpinMoneyFloor", "Keep at least", {
+		min = 0, max = 250000, step = 2500,
+		tradeoff = "Money the run will not touch. Normal spins stop once spending one more would drop you below this.",
+		fmt = function(v) return "$" .. string.format("%d", v) end,
+	})
+	slider(spinPage, "SpinMax", "Spin cap", {
+		min = 0, max = 500, step = 10,
+		tradeoff = "Hard stop after this many spins in one run. 0 means run until the target drops or the currency is gone.",
+		fmt = function(v) return v <= 0 and "unlimited" or string.format("%d spins", v) end,
+	})
+	W.note(spinPage, "Slot safety: the spin carries no slot argument, so the server rolls into whatever slot is equipped right now. The run pins itself to the slot it started on and stops if you switch slots. A LOCKED slot is refused outright -- before the first call, and again if it gets locked mid-run -- even though the game's own SPIN button does not check it (1174:486 vs 1174:942).")
+	W.note(spinPage, "Sends StyleService.RF.SpinStyle -- the same RemoteFunction the game's own SPIN button invokes (1174:533) -- and SetTargetRollStyle once at the start, which is what the rarity list's own button does (1174:846). The odds, the cost and the result are all the server's. This clicks for you; it does not change what you roll.")
+
+	W.section(spinPage, "Target style")
+	W.note(spinPage, "Tap a style to make it the target. The list is every entry in ReplicatedStorage.Shared.PlrStyles.")
+	do
+		local styles = plrStyles()
+		if type(styles) ~= "table" then
+			W.note(spinPage, "PlrStyles could not be read, so there is nothing to list. Rejoin and re-open this tab.")
+		else
+			local rarities = requireShared("Shared", "Rarities")
+			local keys = {}
+			for key, entry in pairs(styles) do
+				if type(entry) == "table" then
+					keys[#keys + 1] = key
+				end
+			end
+			local function priority(key)
+				local rarity = styles[key] and styles[key].Rarity
+				local row = rarity and type(rarities) == "table" and rarities[rarity]
+				return type(row) == "table" and tonumber(row.Priority) or 0
+			end
+			table.sort(keys, function(a, b)
+				local pa, pb = priority(a), priority(b)
+				if pa ~= pb then
+					return pa > pb
+				end
+				return a < b
+			end)
+			local styleButtons = {}
+			local function styleText(key)
+				local entry = styles[key]
+				local name = type(entry.Name) == "string" and entry.Name or key
+				return (CFG.SpinTarget == key and "● " or "") .. name
+			end
+			for _, key in ipairs(keys) do
+				local entry = styles[key]
+				local button = W.button(spinPage, styleText(key), tostring(entry.Rarity or "?") .. "  ·  key " .. key, function()
+					CFG.SpinTarget = key
+					saveConfig()
+					log("spin target=" .. key)
+					for otherKey, otherButton in pairs(styleButtons) do
+						otherButton.Text = styleText(otherKey)
+					end
+				end, true)
+				styleButtons[key] = button
+			end
+		end
+	end
+
+	--======================================================================
 	-- Settings
 	--======================================================================
 	local settings = pages.Settings
@@ -2159,6 +2553,9 @@ local function ensureGui()
 			end
 		end
 		table.sort(armed)
+		if S.spin.running then
+			armed[#armed + 1] = "StyleSpinner"
+		end
 		return "fires a real remote right now: " .. (#armed > 0 and table.concat(armed, ", ") or "none")
 	end)
 
@@ -2238,6 +2635,7 @@ local function ensureGui()
 	-- persist=false: an unload must not overwrite the saved toggles with all-OFF,
 	-- or every re-inject comes back blank and autosave looks broken.
 	panic = function(persist)
+		spinStop("panic")
 		CFG.NoDribbleCD = false
 		CFG.DribbleCDClaim = false
 		CFG.NoSlideCD = false

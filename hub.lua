@@ -1,7 +1,9 @@
--- R3ST Hub v2026-09-01.19 (2026-09-01)
+-- R3ST Hub v2026-09-02.23 (2026-09-02)
 -- Rung 2 (client-created UI only). Server sees: nothing; no game state or remotes touched.
 -- Re-inject safe: self-teardown on load; RightShift = show/hide; K = unload.
 -- Changelog:
+--   .23 Publish the kit-drawn Dungeon Quest Reborn module; detected Walkspeed is disabled.
+--   .22 Add the local embedded Volleyball Legends module.
 --   .20 One palette, motion, and a window you can actually resize.
 --      The kit now loads BEFORE the shell (it used to load 350 lines later,
 --      which is why the shell kept a palette of its own), so C is the kit's COL
@@ -110,7 +112,7 @@
 --   the moment the chunk returns, so nothing leaks into a later inject.
 --   Embedded today: gd2.lua, blr_hub.lua, anims.lua.
 
-local BUILD_VERSION = "2026-09-01.21"
+local BUILD_VERSION = "2026-09-02.23"
 local GKEY = "__R3ST_HUB"
 local HOST_KEY = "__R3ST_HOST"
 local CONFIG_FILE = "rbx_hub_template_config.json"
@@ -313,6 +315,9 @@ local REGISTRY = {
 	{ id = "blue-lock-rivals", moduleKey = "BlueLockRivals", name = "Blue Lock Rivals", cat = "Sports",
 		placeId = 18668065416, gameId = 6325068386, file = "blr_hub.lua", embed = true, gkey = "__BLR_HUB",
 		desc = "Cooldown bypass, shot power, ability tuning and client stamina." },
+	{ id = "volleyball-legends", moduleKey = "VolleyballLegends", name = "Volleyball Legends", cat = "Sports",
+		placeId = 73956553001240, gameId = 6931042565, file = "vbl_hub.lua", embed = true, gkey = "__VBL_HUB",
+		desc = "Directional hits, local hitbox tuning, air control and look ESP." },
 	{ id = "critical-strike", moduleKey = "CriticalStrike", name = "Critical Strike", cat = "Fighting",
 		placeId = 8246089782, file = "cs_admin.lua", gkey = "__CS_ADMIN",
 		desc = "cs_core engine: projectile guidance classes, ally assist, admin bar." },
@@ -363,7 +368,7 @@ local REGISTRY = {
 	{ id = "dungeon-quest-reborn", moduleKey = "DungeonQuestReborn", name = "Dungeon Quest Reborn", cat = "RPG",
 		placeId = 77649408247578, placeIds = { 77649408247578, 85776757589518 }, gameId = 9931749389,
 		file = "dqr_hub.lua", embed = true, gkey = "__DQR_HUB",
-		desc = "Attack telegraphs, auto dodge, auto abilities, mob ESP." },
+		desc = "Attack telegraphs, auto dodge, auto abilities and mob ESP; unsafe speed disabled." },
 	-- PlaceId from the dump named in games/other/RIVALS_SOFTAIM_SAFETY_2026-08-13.md:11.
 	{ id = "rivals", moduleKey = "Rivals", name = "Rivals", cat = "Shooter",
 		placeId = 117398147513099, file = "rivals_esp.lua", embed = true, gkey = "__RIVALS_ESP",
