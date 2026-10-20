@@ -1,5 +1,5 @@
 param(
-    [string]$Source = "C:\Users\croni\Downloads\OpXOyuApWKTlFzrV",
+    [string]$Source = (Join-Path $PSScriptRoot "..\..\Potassium"),
     [string]$Revision = "PENDING",
     [string]$Release = (Get-Date -Format "yyyy-MM-dd.HHmm")
 )
@@ -9,6 +9,8 @@ $Copies = [ordered]@{
     "scripts\hub.lua" = "hub.lua"
     "scripts\r3st_ui.lua" = "r3st_ui.lua"
     "scripts\anims.lua" = "anims.lua"
+    "lib\log.lua" = "log.lua"
+    "games\bizarre-day-classic\scripts\abd_item_esp.lua" = "games\abd_item_esp.lua"
     "games\blue-lock-rivals\scripts\blr_hub.lua" = "games\blr_hub.lua"
     "games\ghost-driver\scripts\gd2.lua" = "games\gd2.lua"
     "games\dungeon-quest-reborn\scripts\dqr_hub.lua" = "games\dqr_hub.lua"
@@ -17,7 +19,9 @@ foreach ($pair in $Copies.GetEnumerator()) {
     $from = Join-Path $Source $pair.Key
     $to = Join-Path $Root $pair.Value
     if (!(Test-Path $from -PathType Leaf)) { throw "Missing canonical source: $from" }
-    Copy-Item $from $to -Force
+    # Hash the LF bytes GitHub will serve, not a CRLF development checkout.
+    $text = [IO.File]::ReadAllText($from).Replace("`r`n", "`n")
+    [IO.File]::WriteAllText($to, $text, [Text.UTF8Encoding]::new($false))
     Write-Host "SYNCED $($pair.Key) -> $($pair.Value)"
 }
 
@@ -26,6 +30,8 @@ $LocalNames = [ordered]@{
     "hub.lua" = "hub.lua"
     "r3st_ui.lua" = "r3st_ui.lua"
     "anims.lua" = "anims.lua"
+    "log.lua" = "log.lua"
+    "games/abd_item_esp.lua" = "abd_item_esp.lua"
     "telemetry.lua" = "resthub_telemetry.lua"
     "games/blr_hub.lua" = "blr_hub.lua"
     "games/gd2.lua" = "gd2.lua"
@@ -38,11 +44,12 @@ foreach ($path in $LocalNames.Keys) {
 }
 $Manifest = [ordered]@{
     schema = 1
-    minLoader = 3
+    minLoader = 4
     release = $Release
     revision = $Revision
     files = $Files
     modules = @(
+        [ordered]@{ id = "bizarre-day-classic"; gameId = 969567031; placeId = 120318126233314; path = "games/abd_item_esp.lua" },
         [ordered]@{ id = "blue-lock-rivals"; gameId = 6325068386; placeId = 18668065416; path = "games/blr_hub.lua" },
         [ordered]@{ id = "ghost-driver"; gameId = 10173311467; placeId = 137228775845999; path = "games/gd2.lua" },
         [ordered]@{ id = "dungeon-quest-reborn"; gameId = 9931749389; placeId = 77649408247578; path = "games/dqr_hub.lua" }

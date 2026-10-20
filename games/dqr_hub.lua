@@ -14,17 +14,43 @@
 --
 -- LOUD FEATURES, know what they look like to a bystander:
 --   Auto Dodge steps your character out of an attack volume the instant before it lands.
---   Walkspeed above ~30 is motion no legitimate client produces.
+--   Momentum Dash makes you visibly faster in bursts. It is deliberately modest; see below.
 -- Both are your character's own motion under your network ownership (rung 5), visible to everyone.
 --
 -- H = Fix Me (unstick — NOT F, the game binds F to its own ability-set swap, 0085.lua:1408).
 -- LeftAlt = toggle Auto Abilities.
 -- P = panic; K = unload; Insert / RShift = panel.
--- Re-inject safe: self-teardown on load; speed, PrecastHitbox wrappers, telegraph markers and mob
--- adornments are all restored on unload.
+-- Re-inject safe: self-teardown on load; speed, dash, PrecastHitbox wrappers, telegraph markers
+-- and mob adornments are all restored on unload.
 -- DETECTED 2026-09-02: Walkspeed booted at 132 immediately before server anti-cheat kick.
--- Walkspeed is disabled until new evidence establishes a server-accepted path.
+-- Walkspeed stays disabled; Humanoid.WalkSpeed replicates from the owning client, so the server
+-- reads the real value off the Humanoid and no client-side sanitising can hide it. The boss
+-- self-report (0101.lua:3903-3941, .25 called it 0103.lua) is only a nonce-keyed CONFIRMATION of
+-- a value the server already has — which is why the integrity guard was in place at the time of
+-- that kick and did not prevent it.
+-- MEASURED 2026-09-03, the only hard data on this server's movement tolerance:
+--   dash at 60 studs/s (avg 32.5, 2.03x walking) drew a 25-stud server correction in 9 seconds.
+--   It was re-armed at 60 twice more; "Kicked by anti-cheat" landed 65 seconds after the last.
+-- So the detector works and warned us 85 seconds ahead, and the KICK followed repeated
+-- corrections rather than the first one. Both are enforced in code as of .28 — a correction
+-- permanently lowers the ceiling the UI can offer, and two in a session lock dash out entirely.
+-- There is no spoof for this: the server reads replicated character position, position IS the
+-- outcome we want, and the dump has no movement remote, no BridgeNet movement bridge and no
+-- client-side kick path to intercept. Staying under the threshold is the whole game.
 -- Changelog:
+--  .28 Calibration ladder. Dash speed is bounded by a persisted dashCeiling that only evidence
+--      moves: Auto Calibrate adds +2 studs/s per 45s of ACTUAL burst time, and a correction cuts
+--      the ceiling by 6 and starts a 60s lockout. Two corrections lock dash for the session.
+--      Defaults dropped to 28/0.5/1.2 (avg 21.6, 1.35x) — well under the caught value.
+--  .27 FIX the control panel was never scrollable: the kit reports layout height but does not own
+--      CanvasSize, and this module set it to zero once and never again. Also reflows on resize.
+--  .26 Momentum Dash: outcome-equivalent travel that never writes Humanoid.WalkSpeed. Bursts the
+--      HumanoidRootPart's own horizontal velocity under our existing network ownership (rung 5,
+--      network_ownership.txt OWNED PARTS), then rests, so the AVERAGE distance-per-tick — the
+--      thing a server position check actually measures — stays near walking. WalkSpeed reads 16
+--      throughout, including inside the boss self-report. Carries a rubber-band detector that
+--      disarms and marks itself flagged the first time the server corrects our position, so the
+--      real tolerance gets measured instead of guessed.
 --  .25 Fail closed outside the DQR universe/lobby/level identity.
 --  .24 Disable detected Walkspeed; move every active control onto the shared R3ST kit.
 --  .23 Removed teleport re-injection and its coupled broken-replay auto-rejoin path.
@@ -47,7 +73,7 @@
 --   .7 telegraph overlay, run HUD, drop feed, boss integrity guard, auto-ready
 --   .1 mob ESP/chams, walkspeed
 
-local BUILD_VERSION = "2026-09-02.25"
+local BUILD_VERSION = "2026-09-03.28"
 local GKEY = "__DQR_HUB"
 
 -- hub.lua publishes __R3ST_HOST immediately before running us and clears it the
@@ -116,6 +142,15 @@ local defaults = {
     autoAbilities = false,
     dodgeLead = 0.15,
     walkSpeed = 20,
+    dash = false,
+    dashSpeed = 28,
+    dashBurst = 0.5,
+    dashRest = 1.2,
+    -- 60 was caught in 9 seconds on 2026-09-03. The ladder starts well under it and climbs on
+    -- evidence; it never opens at a number we have already watched fail.
+    dashCeiling = 34,
+    dashCalibrate = false,
+    dashFlagged = false,
     panelX = 24,
     panelY = 220,
 }
@@ -135,6 +170,10 @@ loadConfig()
 -- Recorded enforcement overrides the old resume instruction: Roblox logged
 -- "Kicked by anti-cheat" after this feature resumed at 132 on 2026-09-02.
 settings.speed = false
+-- potassium-dev §0.2b exception 2: a feature with recorded enforcement against it boots OFF until
+-- the user clears it. dashFlagged is set by the rubber-band detector, and only the user's own
+-- re-arm clears it, so this is removable evidence rather than a permanent opinion.
+if settings.dashFlagged then settings.dash = false end
 
 local saveQueued = false
 local function saveConfig()
@@ -167,6 +206,16 @@ local state = {
     stock = { walkSpeed = 16, hipHeight = 0, jumpPower = 50, platformStand = false, rootSize = 4.24 },
     inDanger = false,
     lastReady = "",
+    dashPhase = "rest",
+    dashUntil = 0,
+    dashLastPos = nil,
+    dashLastDir = nil,
+    dashIgnoreUntil = 0,
+    dashBursts = 0,
+    dashCorrections = 0,
+    dashStrikes = 0,
+    dashLockUntil = 0,
+    dashBurstTime = 0,
 }
 
 local function connect(signal, callback)
@@ -483,6 +532,8 @@ local function fixMe()
 
     -- 1. clear every state that pins a character in place
     state.blinking = false
+    -- we are about to move ourselves; the dash correction watch must not read that as the server
+    state.dashIgnoreUntil = os.clock() + 1.5
     root.Anchored = false
     root.AssemblyLinearVelocity = Vector3.zero
     root.AssemblyAngularVelocity = Vector3.zero
@@ -637,6 +688,180 @@ local function installIntegrityGuard()
     if not ok then Log.warn("integrity guard install failed") end
 end
 
+-- ---------------------------------------------------------------- momentum dash
+--
+-- Why not WalkSpeed: Humanoid.WalkSpeed replicates from the client that owns the character, so
+-- the server reads the true number straight off the Humanoid. That is the channel that produced
+-- the 2026-09-02 kick, and no client-side edit closes it — the boss self-report guard above was
+-- already installed and running when it happened.
+--
+-- What this does instead: writes the HumanoidRootPart's own horizontal velocity, which is a
+-- physics state we already own (rung 5, network_ownership.txt OWNED PARTS) and which the server
+-- can only judge by the resulting motion. To keep that motion inside a plausible envelope it runs
+-- a duty cycle — burst, then a full rest during which nothing is written at all — so the average
+-- speed over any window longer than one cycle stays close to walking. A server position check
+-- measures distance per tick over a window; a constant 2x fails it, a 1.4x average with real
+-- deceleration between bursts is the same shape as a game with a sprint.
+--
+-- Nothing here fires a remote and nothing writes WalkSpeed, HipHeight, jump or root size, so the
+-- boss self-report answers honestly with stock values on its own.
+
+local DASH_JITTER = 0.2          -- +/-20% on the rest interval; a metronome is its own signature
+local DASH_WALK = 16             -- stock WalkSpeed, local_char.txt:3
+local DASH_CORRECTION_MIN = 24   -- studs in one tick, below this is ordinary knockback
+local DASH_CORRECTION_MAX = 220  -- above this it is a dungeon/room teleport, not a correction
+
+-- Calibration constants. These exist because of the measured 2026-09-03 sequence, which is the
+-- only hard data anyone has on this server's tolerance:
+--   23:52:35  dash armed at 60 studs/s (avg 32.5, 2.03x walking)
+--   23:52:44  server pulled us 25 studs back            <- 9 seconds
+--   23:52:59  re-armed at 60.  23:53:04  re-armed at 60
+--   23:54:09  "Kicked by anti-cheat"                     <- 65 seconds after the last re-arm
+-- Two things follow. The detector is real and it warned us 85 seconds early. And the kick came
+-- after REPEATED corrections, not the first -- so re-arming into the same wall is the thing that
+-- actually costs the session. Both are now enforced in code instead of trusted to a slider.
+local DASH_CEILING_MIN = 20      -- never back off below a plain jog
+local DASH_CEILING_MAX = 60      -- calibration never climbs past the speed we know was caught
+local DASH_BACKOFF = 6           -- studs/s removed from the ceiling per correction
+local DASH_STRIKE_LIMIT = 2      -- corrections in one session before dash locks out entirely
+local DASH_LOCKOUT = 60          -- seconds dash refuses to burst after a correction
+local DASH_CALIB_STEP = 2        -- studs/s added per clean hold
+local DASH_CALIB_HOLD = 45       -- seconds of ACTUAL burst time, not wall clock, per step
+
+-- The number the user is actually exposing: mean studs/s across one full burst+rest cycle.
+local function dashAverage()
+    local span = settings.dashBurst + settings.dashRest
+    if span <= 0 then return DASH_WALK end
+    return (settings.dashSpeed * settings.dashBurst + DASH_WALK * settings.dashRest) / span
+end
+
+local function dashStop()
+    state.dashPhase = "rest"
+    state.dashUntil = 0
+    state.dashLastPos = nil
+    state.dashLastDir = nil
+end
+
+-- The measurement instrument, and now also the governor. A correction is not just logged: it
+-- permanently lowers the ceiling this config will ever offer again, so the 23:52:59 re-arm that
+-- led to the kick is no longer a thing the UI can express.
+local function dashFlag(reason)
+    local caughtAt = settings.dashSpeed
+    settings.dashCeiling = math.max(DASH_CEILING_MIN, math.floor(caughtAt - DASH_BACKOFF))
+    settings.dashSpeed = math.min(settings.dashSpeed, settings.dashCeiling)
+    settings.dash = false
+    settings.dashFlagged = true
+    state.dashStrikes += 1
+    state.dashCorrections += 1
+    state.dashBurstTime = 0
+    state.dashLockUntil = os.clock() + DASH_LOCKOUT
+    saveConfig()
+    dashStop()
+    Log.warn(string.format("dash disarmed at %d studs/s: %s | ceiling now %d | strike %d/%d | locked %ds",
+        caughtAt, reason, settings.dashCeiling, state.dashStrikes, DASH_STRIKE_LIMIT, DASH_LOCKOUT))
+end
+
+local function dashTick(dt)
+    local character = LocalPlayer.Character
+    local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+    local root = character and character:FindFirstChild("HumanoidRootPart")
+    if not humanoid or not root or humanoid.Health <= 0 then
+        dashStop()
+        return
+    end
+    if not settings.dash then
+        if state.dashLastPos then dashStop() end
+        return
+    end
+    -- the ceiling is authoritative even if an old config file carries a higher number
+    if settings.dashSpeed > settings.dashCeiling then settings.dashSpeed = settings.dashCeiling end
+
+    local now = os.clock()
+    -- After a correction the server is already looking at us. Bursting again inside that window is
+    -- exactly the 23:52:59 mistake; the kick followed 65 seconds later.
+    if now < state.dashLockUntil then
+        state.dashLastPos = root.Position
+        state.dashLastDir = nil
+        return
+    end
+    -- Fix Me, respawns and the game's own room transitions all move us deliberately; a correction
+    -- read during that window would be a false positive that permanently flags a working feature
+    -- (potassium-dev §5.4b — never narrow a working path on an inference).
+    if now < state.dashIgnoreUntil then
+        state.dashLastPos = root.Position
+        state.dashLastDir = nil
+        return
+    end
+
+    -- Rubber-band watch. Runs every tick, including during rest, so a correction that arrives a
+    -- moment after a burst still lands on us. Only a LARGE displacement pointed AGAINST the way we
+    -- were pushing counts; that shape is a server position rewrite and nothing else.
+    local last = state.dashLastPos
+    local lastDir = state.dashLastDir
+    state.dashLastPos = root.Position
+    if last and lastDir then
+        local moved = root.Position - last
+        local flat = Vector3.new(moved.X, 0, moved.Z)
+        local distance = flat.Magnitude
+        if distance > DASH_CORRECTION_MIN and distance < DASH_CORRECTION_MAX
+            and flat.Unit:Dot(lastDir) < 0 then
+            dashFlag(string.format("server pulled us %.0f studs back against travel", distance))
+            return
+        end
+    end
+
+    -- Standing still or airborne: never accumulate burst time and never write velocity. Pushing a
+    -- falling character is the part a bystander would call flying.
+    local direction = humanoid.MoveDirection
+    if direction.Magnitude < 0.1 or humanoid.FloorMaterial == Enum.Material.Air then
+        state.dashPhase = "rest"
+        state.dashLastDir = nil
+        return
+    end
+
+    if state.dashPhase ~= "burst" then
+        if now < state.dashUntil then
+            state.dashLastDir = nil
+            return
+        end
+        state.dashPhase = "burst"
+        state.dashUntil = now + settings.dashBurst
+        state.dashBursts += 1
+    elseif now >= state.dashUntil then
+        state.dashPhase = "rest"
+        state.dashUntil = now + settings.dashRest * (1 + (math.random() * 2 - 1) * DASH_JITTER)
+        state.dashLastDir = nil
+        return
+    end
+
+    -- Climb toward the real ceiling instead of guessing at it. The clock that matters is seconds
+    -- actually spent bursting, not wall time: standing in town for ten minutes proves nothing, and
+    -- a step taken on wall time would arrive with no evidence behind it.
+    state.dashBurstTime += (dt or 0)
+    if settings.dashCalibrate and state.dashBurstTime >= DASH_CALIB_HOLD then
+        state.dashBurstTime = 0
+        if settings.dashSpeed < DASH_CEILING_MAX then
+            settings.dashSpeed = math.min(DASH_CEILING_MAX, settings.dashSpeed + DASH_CALIB_STEP)
+            settings.dashCeiling = math.max(settings.dashCeiling, settings.dashSpeed)
+            saveConfig()
+            Log.info(string.format("calibrate: %ds clean burst time, stepping to %d studs/s (avg %.1f)",
+                DASH_CALIB_HOLD, settings.dashSpeed, dashAverage()))
+        else
+            settings.dashCalibrate = false
+            saveConfig()
+            Log.info("calibrate: reached the 60 studs/s cap, stopping")
+        end
+    end
+
+    -- Y is left to gravity; we only ever replace the horizontal component.
+    local flatDir = Vector3.new(direction.X, 0, direction.Z)
+    if flatDir.Magnitude < 0.1 then return end
+    flatDir = flatDir.Unit
+    state.dashLastDir = flatDir
+    local target = flatDir * settings.dashSpeed
+    root.AssemblyLinearVelocity = Vector3.new(target.X, root.AssemblyLinearVelocity.Y, target.Z)
+end
+
 -- ---------------------------------------------------------------- panel
 
 local uiLive = {}
@@ -734,6 +959,23 @@ local function setToggle(key, value)
         installPrecastWrap()
     elseif key == "speed" then
         if settings[key] then applySpeed() else restoreSpeed() end
+    elseif key == "dash" then
+        dashStop()
+        if settings[key] then
+            -- Two corrections in one session is the shape that ended in a kick. After that the
+            -- toggle stops being the user's decision for the rest of the session.
+            if state.dashStrikes >= DASH_STRIKE_LIMIT then
+                settings.dash = false
+                Log.warn(string.format("dash locked for this session: %d server corrections; re-inject to reset",
+                    state.dashStrikes))
+            else
+                -- arming by hand is how the user clears a recorded flag (§0.2b). The ceiling it
+                -- comes back at is the lowered one, so this can never re-enter the same wall.
+                settings.dashFlagged = false
+                state.dashIgnoreUntil = os.clock() + 0.5
+            end
+            saveConfig()
+        end
     elseif key == "autoReady" then
         state.lastReady = ""
     end
@@ -773,8 +1015,57 @@ W.slider(body, {
 })
 W.button(body, "Fix me", "H · clears stuck movement state and lands on floor geometry", fixMe, true)
 
+W.section(body, "Movement")
+addToggle("dash", "Momentum dash", "Burst travel on your own velocity; WalkSpeed stays 16")
+addToggle("dashCalibrate", "Auto calibrate",
+    "Climbs +2 studs/s per 45s of clean burst time, and stops permanently where the server objects")
+local speedOpt = {
+    label = "Dash speed",
+    key = "dashSpeed",
+    min = 20,
+    max = settings.dashCeiling,
+    step = 1,
+    fmt = function(value) return string.format("%d studs/s", value) end,
+    tradeoff = "Peak during a burst only. The track ends at the proven ceiling, not at 60.",
+}
+W.slider(body, speedOpt)
+-- The slider's own max IS the ceiling, so a lowered ceiling is visible rather than a silent clamp.
+uiLive[#uiLive + 1] = function() speedOpt.max = settings.dashCeiling end
+W.slider(body, {
+    label = "Burst length",
+    key = "dashBurst",
+    min = 0.2,
+    max = 1.2,
+    step = 0.05,
+    fmt = function(value) return string.format("%.2fs", value) end,
+    tradeoff = "How long each burst runs before velocity is handed back to the game.",
+})
+W.slider(body, {
+    label = "Rest between bursts",
+    key = "dashRest",
+    min = 0.4,
+    max = 3,
+    step = 0.05,
+    fmt = function(value) return string.format("%.2fs", value) end,
+    tradeoff = "Nothing is written during rest. This is what keeps the average plausible.",
+})
+W.statusRow(body, function()
+    local lock = state.dashLockUntil - os.clock()
+    local note = ""
+    if state.dashStrikes >= DASH_STRIKE_LIMIT then
+        note = "  ·  LOCKED this session (" .. state.dashStrikes .. " corrections)"
+    elseif lock > 0 then
+        note = string.format("  ·  cooling down %ds", math.ceil(lock))
+    elseif settings.dashFlagged then
+        note = "  ·  corrected once, ceiling lowered — re-arm to continue"
+    end
+    return string.format("avg %.1f studs/s (%.2fx)  ·  ceiling %d  ·  bursts %d  ·  strikes %d/%d%s",
+        dashAverage(), dashAverage() / DASH_WALK, settings.dashCeiling,
+        state.dashBursts, state.dashStrikes, DASH_STRIKE_LIMIT, note)
+end)
+
 W.section(body, "Safety")
-W.note(body, "Walkspeed disabled: server anti-cheat kick recorded 2026-09-02 after speed resumed at 132.")
+W.note(body, "Walkspeed disabled: Humanoid.WalkSpeed replicates, so the server reads it directly. Server anti-cheat kick recorded 2026-09-02 after speed resumed at 132.")
 W.statusRow(body, function()
     local alive = 0
     for model in next, state.mobs do
@@ -792,6 +1083,18 @@ W.footer(inner, {
 for _, key in ipairs({ "esp", "telegraph", "autoDodge", "runHud", "dropFeed", "integrityGuard", "autoReady", "autoAbilities" }) do
     setToggle(key, settings[key])
 end
+
+-- The kit lays cards out and reports the height; it never touches CanvasSize, so the owning
+-- module has to. This module never did, which is why the panel has always been unscrollable —
+-- it only became visible once the Movement card pushed the content past the window.
+-- Re-run on resize so a dragged hub tab reflows its columns instead of clipping.
+local function relayoutBody()
+    local width = body.AbsoluteSize.X
+    if width < 200 then width = 718 end
+    body.CanvasSize = UDim2.fromOffset(0, W.relayout(body, width - 8) + 12)
+end
+connect(body:GetPropertyChangedSignal("AbsoluteSize"), relayoutBody)
+task.defer(relayoutBody)
 
 -- ---------------------------------------------------------------- run HUD
 
@@ -899,14 +1202,26 @@ connect(UserInputService.InputBegan, function(input, processed)
         setToggle("autoAbilities", false)
         setToggle("autoDodge", false)
         setToggle("speed", false)
+        settings.dash = false
+        saveConfig()
+        dashStop()
+        Log.info("dash=OFF")
     elseif key == Enum.KeyCode.K and getgenv()[GKEY] then
         getgenv()[GKEY].destroy()
     end
 end)
 
+connect(LocalPlayer.CharacterAdded, function()
+    -- a respawn relocates us; do not read that as a server correction
+    state.dashIgnoreUntil = os.clock() + 3
+    dashStop()
+end)
+
 local lastTick = 0
-connect(RunService.Heartbeat, function()
+connect(RunService.Heartbeat, function(dt)
     if not state.alive then return end
+    -- dash owns physics state, so it runs every frame; everything below stays at ~10 Hz
+    dashTick(dt)
     local now = os.clock()
     -- ~10 Hz for UI and scans; nothing here needs per-frame work any more.
     if now - lastTick >= 0.1 then
@@ -962,6 +1277,7 @@ end)
 destroy = function()
     if not state.alive then return end
     state.alive = false
+    dashStop()
     restoreSpeed()
     removePrecastWrap()
     clearMarks()
@@ -986,7 +1302,11 @@ scanFolders()
 for _, child in ipairs(workspace:GetChildren()) do
     if looksLikeTelegraph(child) then addMark(child) end
 end
-Log.info(string.format("boot %s place=%d resumed esp=%s telegraph=%s dodge=%s hud=%s drops=%s guard=%s speed=%s(%d) ready=%s abilities=%s",
+Log.info(string.format("boot %s place=%d resumed esp=%s telegraph=%s dodge=%s hud=%s drops=%s guard=%s speed=%s(%d) ready=%s abilities=%s dash=%s(%d/%.2f/%.2f avg %.1f flagged=%s)",
     BUILD_VERSION, game.PlaceId, tostring(settings.esp), tostring(settings.telegraph), tostring(settings.autoDodge),
     tostring(settings.runHud), tostring(settings.dropFeed), tostring(settings.integrityGuard),
-    tostring(settings.speed), settings.walkSpeed, tostring(settings.autoReady), tostring(settings.autoAbilities)))
+    tostring(settings.speed), settings.walkSpeed, tostring(settings.autoReady), tostring(settings.autoAbilities),
+    tostring(settings.dash), settings.dashSpeed, settings.dashBurst, settings.dashRest,
+    dashAverage(), tostring(settings.dashFlagged)))
+Log.info(string.format("dash ceiling=%d calibrate=%s (caught at 60 on 2026-09-03; %.2fx walking at current settings)",
+    settings.dashCeiling, tostring(settings.dashCalibrate), dashAverage() / DASH_WALK))

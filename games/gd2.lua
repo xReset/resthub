@@ -1,5 +1,35 @@
 --------------------------------------------------------------------------
--- gd2.lua -- R3ST Hub / Ghost Driver v2026-09-01.gd2.41 (2026-09-01)   PlaceId 137228775845999
+-- gd2.lua -- R3ST Hub / Ghost Driver v2026-09-06.gd2.50 (2026-09-06)   PlaceId 137228775845999
+-- .50: pass-through clears CanQuery with CanCollide -- driving inside another
+-- player's car left ~67 queryable parts, A-Chassis raycasts the ground, and the
+-- ray hit their floor instead of the road, so a wheel and the lip sank through
+-- the world. Also: ESP restores through its setter, cash magnet and auto budget
+-- persist, and the stance link toggle saves on click.
+-- .49: pass-through picks your own car by OwnerUserId/OwnerName, not by what
+-- you are sitting in. A scan while you stood outside released your own wheels
+-- and pinned them, so the car sank into the road. It now hands them back too.
+-- .48: the CarSpeedLimits CALL leaves the UI thread too, not just the require.
+-- .46 moved the require and the eight live rows still died on the next tick;
+-- the module's closures carry the restricted capability, so the UI now reads
+-- a cached number computed in the background and can never throw.
+-- .47: pass-through toggle beside crash guard. Measured live: every collision
+-- group pair in this game is collidable, other players' Body/Misc/DriveSeat
+-- already are not, and the only collidable parts left are their 4 wheels +
+-- 4 RimFit + the driver's CollisionPart. Local CanCollide only; own car untouched.
+-- .46: resolve CarSpeedLimits on its own thread. require() of a game module
+-- yields into the Roblox scheduler and the resumed thread has lost executor
+-- identity, so the inline require inside an 8 Hz live row killed the other
+-- eight rows in the same refresh pass on the first bind that called it.
+-- .45: capture car/profile at edit time; save before delayed apply, flush on
+-- unbind/unload, cancel pending writes, and reject stale bind continuations.
+-- UI refresh from tab callbacks is deferred out of the input signal thread.
+-- .44: responsive Kit.moduleShell replaces the fixed 1040x600 downscale.
+-- Seven page builders and profile setters unchanged. Gate also caught two
+-- pre-existing nil references: Binder.destroySession's sess typo and GD forward scope.
+-- 2026-09-02.gd2.43: traction slider stages 6-8 write a direct TireGripMult
+--   override (2.5-3.5x) past the applier's 1-1.8x stage table, re-asserted on
+--   every applier rewrite -- the game's DynamicGrip drops wheel friction to
+--   ~0.05x above 90 studs/s, which is where the high-power spinouts came from.
 -- 2026-09-01.gd2.41: normalize owned-car names against all 19 dump-backed
 --   CarTiers entries and retry one observed first-apply gearbox race.
 -- 2026-09-01.gd2.40: detach only the embedded panel on Hub route changes and
@@ -109,7 +139,7 @@ local SoundService = game:GetService("SoundService")
 local HttpService = game:GetService("HttpService")
 
 local LP = Players.LocalPlayer
-local BUILD_VERSION = "2026-09-01.gd2.41"
+local BUILD_VERSION = "2026-09-06.gd2.50"
 local LOG_FILE = "logs/gd2.log"
 local CFG_FILE = "gd2_config.json"
 local OLD_CFG_FILE = "gd_config.json"
@@ -252,7 +282,8 @@ local Limits = {}
 Limits.AERO_WALL_MPH = U.mph(400 / 0.56315)   -- ~248.6 mph
 Limits.limiterActive = true                   -- Aero.setLimiter keeps this true
 
-local speedMod, speedRetryAt = nil, 0
+local speedMod, speedRetryAt, speedResolving = nil, 0, false
+local speedCache, speedCacheFor, speedComputing = nil, nil, false
 
 -- Never a WaitForChild: it would stall every caller for its timeout, and one
 -- caller is an 8 Hz status row. But a single miss must not latch either --
@@ -261,9 +292,26 @@ local speedMod, speedRetryAt = nil, 0
 -- rest of the session on that one miss, so Trans.fit planned every gearbox
 -- against the aero wall alone and never saw the server cap. Retry on a 2 s
 -- backoff until it resolves, then latch.
-function Limits.serverMph(car)
-	if not speedMod and os.clock() >= speedRetryAt then
-		speedRetryAt = os.clock() + 2
+--
+-- NOTHING about CarSpeedLimits runs on the caller's thread any more, and the
+-- reason is measured, not assumed. This module is required by no client
+-- script, so OUR require is the first one: the module body runs on our thread,
+-- yields into the Roblox scheduler, and the thread that resumes has lost the
+-- executor's identity. Every closure the module returns carries that same
+-- restricted capability, so calling ceilingFor later throws "cannot access
+-- 'Instance' (lacking capability Plugin)" no matter which thread calls it.
+--
+-- .46 moved only the require off-thread and the eight live rows still died on
+-- the very next tick (gd2.log:139-147) -- proof that the call, not the
+-- require, is what poisons the refresh pass. So the call is now off-thread
+-- too, and the UI reads a cached NUMBER that can never throw.
+local function resolveSpeedMod()
+	if speedMod or speedResolving or os.clock() < speedRetryAt then
+		return
+	end
+	speedResolving = true
+	speedRetryAt = os.clock() + 2
+	task.spawn(function()
 		local inst = ReplicatedStorage:FindFirstChild("CarSpeedLimits")
 		if inst and inst:IsA("ModuleScript") then
 			local ok, mod = pcall(require, inst)
@@ -272,15 +320,38 @@ function Limits.serverMph(car)
 				log("limits: CarSpeedLimits resolved")
 			end
 		end
-	end
-	if not speedMod or not car then
+		speedResolving = false
+	end)
+end
+
+-- Returns the last computed ceiling for this car and refreshes it in the
+-- background. Callers get nil until the first result lands; every caller
+-- already handles nil, because that is what an unresolved module returned.
+function Limits.serverMph(car)
+	if not car then
 		return nil
 	end
-	local ok2, studs = pcall(speedMod.ceilingFor, car)
-	if not ok2 or type(studs) ~= "number" then
+	if not speedMod then
+		resolveSpeedMod()
 		return nil
 	end
-	return U.mph(studs)
+	if car ~= speedCacheFor and not speedComputing then
+		speedComputing = true
+		task.spawn(function()
+			local ok, studs = pcall(speedMod.ceilingFor, car)
+			if ok and type(studs) == "number" then
+				speedCache, speedCacheFor = U.mph(studs), car
+			else
+				speedCache, speedCacheFor = nil, car
+				log("limits: ceilingFor rejected this car, using the aero wall only")
+			end
+			speedComputing = false
+		end)
+	end
+	if car ~= speedCacheFor then
+		return nil
+	end
+	return speedCache
 end
 
 -- Only a proven client-side physical ceiling belongs in gearbox planning.
@@ -339,6 +410,7 @@ Config.PROFILE_DEFAULT = {
 	launch = 0.35,     -- 0..1 -> launch RPM + first gear bias
 	shiftBias = 0.0,   -- -1 shift early .. +1 shift late
 	tireStage = 3,     -- 1..5  grip (drives TireGripMult, 0562.lua:696)
+	gripOverride = nil, -- nil = follow tireStage; number = pin TireGripMult directly (0309.lua:202 reads it live every Heartbeat)
 	brakeStage = 3,    -- 1..5  BrakeForce 2500..6500
 	drivetrain = 1,    -- 1 STOCK, 2 FWD, 3 RWD, 4 AWD
 	weightStage = 2,   -- 1..5  -100 lb per stage, floor 0.5x
@@ -398,6 +470,12 @@ Config.DEFAULT = {
 	},
 	esp = { enabled = false, name = true, dist = true },
 	crashGuard = false,
+	-- Pass through other players' cars. Local physics only; see Guard.passScan.
+	carPassThrough = false,
+	-- Cash magnet and its budget mode. Persisted because a toggle the user set
+	-- should still be set after a reload; the DEFAULT stays off.
+	cashMagnet = false,
+	cashAuto = true,
 	clickTeleport = false,
 	cashPreview = 0.15,
 	-- Road prefetch. ON by default: without it any speed the panel can reach
@@ -484,24 +562,30 @@ function Config.load()
 end
 
 local saveQueued = false
+local saveThread
 function Config.save()
 	if saveQueued then
 		return
 	end
 	saveQueued = true
-	task.delay(0.75, function()
+	saveThread = task.delay(0.75, function()
+		saveThread = nil
 		saveQueued = false
 		U.guard("config.save", function()
 			Config.data.version = Config.VERSION
 			writefile(CFG_FILE, HttpService:JSONEncode(Config.data))
+			log("config: autosave written v" .. tostring(Config.VERSION))
 		end)
 	end)
 end
 
 function Config.saveNow()
+	if saveThread then pcall(task.cancel, saveThread); saveThread = nil end
+	saveQueued = false
 	U.guard("config.saveNow", function()
 		Config.data.version = Config.VERSION
 		writefile(CFG_FILE, HttpService:JSONEncode(Config.data))
+		log("config: flush written v" .. tostring(Config.VERSION))
 	end)
 end
 
@@ -632,6 +716,11 @@ function Binder.destroySession(reason)
 		return
 	end
 	Binder.session = nil
+	s.gripOv = nil
+	if s.gripPin then
+		pcall(function() s.gripPin:Disconnect() end)
+		s.gripPin = nil
+	end
 	log(("bind: session %d destroyed (%s)"):format(s.gen, tostring(reason)))
 	fire("unbound", s)
 end
@@ -1403,6 +1492,24 @@ function Tune.resolve(sess, prof)
 	return r
 end
 
+-- Stage 6-8: pin TireGripMult past the applier's {1,1.2,1.4,1.6,1.8} stage
+-- table (0255.lua:345). The applier's enforcePhysicalSuspension rewrites the
+-- attribute to the stage value on every settle (0255.lua:614-618), so the pin
+-- re-asserts on each of those writes. DynamicGrip multiplies the attribute
+-- into wheel friction every Heartbeat (0309.lua:184-191) -- no per-frame work
+-- of ours, nothing replicates. Client SetAttribute does not replicate.
+local GRIP_STAGES = { 1, 1.2, 1.4, 1.6, 1.8, 2.5, 3.0, 3.5 }
+
+local function gripMultFor(prof)
+	-- 0 = off (stage 1-5 path), 6..8 = override stages
+	local s = prof.tireStage or 3
+	if s <= 5 then
+		return GRIP_STAGES[math.floor(s)] or 1, nil
+	end
+	local over = GRIP_STAGES[math.floor(s)]
+	return 1.8, over
+end
+
 local function applierConnections(car)
 	if type(getconnections) ~= "function" then
 		return {}
@@ -1518,6 +1625,34 @@ function Tune.apply(sess, prof, why)
 
 	-- one deliberate supported trigger, last
 	car:SetAttribute(TRIGGER_ATTR, (tonumber(car:GetAttribute(TRIGGER_ATTR)) or 0) + 1)
+
+	-- Grip override: seed the attribute now and pin it against the applier's
+	-- stage rewrites. The attribute change is what DynamicGrip reads (0309.lua:209).
+	local _, override = gripMultFor(prof)
+	if override then
+		if sess.gripPin then
+			pcall(function() sess.gripPin:Disconnect() end)
+			sess.gripPin = nil
+		end
+		sess.gripPin = car:GetAttributeChangedSignal("TireGripMult"):Connect(function()
+			local s2 = Binder.session
+			if s2 ~= sess or not s2.gripOv then
+				return
+			end
+			if car:GetAttribute("TireGripMult") ~= s2.gripOv then
+				car:SetAttribute("TireGripMult", s2.gripOv)
+			end
+		end)
+		sess.gripOv = override
+		car:SetAttribute("TireGripMult", override)
+		log(("tune: grip override %.1fx pinned (stage cap is 1.8x)"):format(override))
+	else
+		sess.gripOv = nil
+		if sess.gripPin then
+			pcall(function() sess.gripPin:Disconnect() end)
+			sess.gripPin = nil
+		end
+	end
 
 	-- 6: wait past the applier's own waits (0.1 poll loop + task.wait(0.2) +
 	-- the 0.15 drain wait, 0562.lua:257-279,1096) before looking at anything.
@@ -1666,6 +1801,11 @@ end
 function Tune.restore(sess, keepProfile)
 	if not (sess and sess.car.Parent) then
 		return false
+	end
+	sess.gripOv = nil
+	if sess.gripPin then
+		pcall(function() sess.gripPin:Disconnect() end)
+		sess.gripPin = nil
 	end
 	Tune.captureStock(sess)
 	Tune.snapshotAttrs(sess)
@@ -2024,6 +2164,202 @@ local function guardRestoreAll()
 	end
 end
 
+-- --- pass through other players' cars -------------------------------------
+--
+-- Measured live on 2026-09-06, not inferred. Every collision-group pair in
+-- this game is collidable -- Cars x Cars included -- so the groups decide
+-- nothing and CanCollide alone does. On another player's car, Body (0/560),
+-- Misc (0/137) and DriveSeat are already non-collidable: the devs made the
+-- bodywork pass through on purpose. What is left collidable is exactly eight
+-- parts, the four wheels and their four RimFit children, plus the single
+-- CollisionPart on the driver's character. Those eight wheels are what
+-- knocks a car sideways at 200 MPH.
+--
+-- This is not new in the 2026-09-05 update: the 09-01 capture had 60
+-- collidable wheel parts across 8 cars and 09-06 has 64 across 8, while
+-- collidable Body parts FELL from 53 to 14. The update did not add car
+-- collision; it filled the server with one new car, so you simply meet far
+-- more of them.
+--
+-- CanCollide on a part we do not own is a local physics property. Writing it
+-- changes what our own simulation collides with and sends nothing, which is
+-- why this is the quietest available seam. Our OWN car is never touched --
+-- its wheels need the road.
+Guard.passOn = false
+Guard.passParts = {}   -- part -> { c = original CanCollide, q = original CanQuery }
+Guard.passConns = {}   -- part -> CanCollide re-assert connection
+Guard.passQueryConns = {} -- part -> CanQuery re-assert connection
+Guard.passModels = {}  -- model -> scan connection
+Guard.passCount = 0
+
+local function passClear(part)
+	for _, map in ipairs({ Guard.passConns, Guard.passQueryConns }) do
+		local conn = map[part]
+		if conn then
+			pcall(function() conn:Disconnect() end)
+			map[part] = nil
+		end
+	end
+	local original = Guard.passParts[part]
+	if original ~= nil then
+		Guard.passParts[part] = nil
+		if typeof(part) == "Instance" and part.Parent then
+			pcall(function()
+				part.CanCollide = original.c
+				part.CanQuery = original.q
+			end)
+		end
+	end
+end
+
+-- CanQuery goes with CanCollide, and that pairing is the whole fix for the
+-- sinking wheel. Killing collision alone let us drive INSIDE another player's
+-- car while ~67 of its parts stayed queryable -- and A-Chassis finds the road
+-- by raycasting down. The ray hit their bodywork instead of the road, so the
+-- suspension put the wheel where their floor was and the front lip went
+-- through the world. It only ever happened near another player because that
+-- is the only time we are inside one.
+--
+-- Only parts that are actually collidable OR queryable are touched, so the
+-- bookkeeping is ~75 parts per car, not ~770. The changed-signals re-assert
+-- rather than poll: the game rebuilds wheels on respawn and repair.
+local function passTake(part)
+	if not part:IsA("BasePart") or Guard.passParts[part] ~= nil then
+		return
+	end
+	if not (part.CanCollide or part.CanQuery) then
+		return
+	end
+	Guard.passParts[part] = { c = part.CanCollide, q = part.CanQuery }
+	Guard.passCount = Guard.passCount + 1
+	part.CanCollide = false
+	part.CanQuery = false
+	local function reassert()
+		if Guard.passOn then
+			if part.CanCollide then part.CanCollide = false end
+			if part.CanQuery then part.CanQuery = false end
+		end
+	end
+	Guard.passConns[part] = part:GetPropertyChangedSignal("CanCollide"):Connect(reassert)
+	Guard.passQueryConns[part] = part:GetPropertyChangedSignal("CanQuery"):Connect(reassert)
+end
+
+local passReleaseModel
+
+local function passIsCar(model)
+	return model:IsA("Model")
+		and model:FindFirstChild("Body") ~= nil
+		and model:FindFirstChild("DriveSeat", true) ~= nil
+end
+
+-- Ownership, NOT seating. Seating was the first version and it sank the car:
+-- any scan that ran while the player stood outside their own car classified it
+-- as somebody else's, released its wheels, and the re-assert connection then
+-- pinned them non-collidable even after they got back in -- so the body
+-- settled through the road and the front lip disappeared into the world.
+-- The server stamps OwnerUserId / OwnerName on every car model
+-- (trees/Workspace.txt, e.g. OwnerUserId=2234175089 OwnerName="Resetyv"), and
+-- those do not change when you step out.
+local function passIsMine(model)
+	if model == U.seatedCar() then
+		return true
+	end
+	local uid = tonumber(model:GetAttribute("OwnerUserId"))
+	if uid and uid == LP.UserId then
+		return true
+	end
+	local owner = model:GetAttribute("OwnerName")
+	return owner ~= nil and tostring(owner) == LP.Name
+end
+
+local function passAdopt(model)
+	if Guard.passModels[model] then
+		return
+	end
+	Guard.passModels[model] = model.DescendantAdded:Connect(function(d)
+		if Guard.passOn and d:IsA("BasePart") then
+			task.defer(function()
+				if Guard.passOn and d.Parent then pcall(passTake, d) end
+			end)
+		end
+	end)
+	for _, d in ipairs(model:GetDescendants()) do
+		if d:IsA("BasePart") then passTake(d) end
+	end
+end
+
+-- Give a model its collision back and stop watching it, without disturbing
+-- any other car we hold.
+function passReleaseModel(model)
+	local conn = Guard.passModels[model]
+	if conn then
+		pcall(function() conn:Disconnect() end)
+		Guard.passModels[model] = nil
+	end
+	local freed = 0
+	for part in pairs(Guard.passParts) do
+		if typeof(part) == "Instance" and part:IsDescendantOf(model) then
+			passClear(part)
+			freed = freed + 1
+		end
+	end
+	if freed > 0 then
+		Guard.passCount = math.max(Guard.passCount - freed, 0)
+		log(("guard: pass-through gave %d part(s) back to your own car"):format(freed))
+	end
+end
+
+function Guard.passScan()
+	if not Guard.passOn then
+		return
+	end
+	for _, m in ipairs(workspace:GetChildren()) do
+		if passIsCar(m) then
+			if passIsMine(m) then
+				-- Undo an earlier misclassification as well as skipping it now.
+				U.guard("guard.passReleaseModel", passReleaseModel, m)
+			else
+				U.guard("guard.passAdopt", passAdopt, m)
+			end
+		end
+	end
+	-- The seated driver's own CollisionPart is in SeatedPlayers, which is
+	-- collidable with Cars in this game's all-true matrix.
+	for _, pl in ipairs(Players:GetPlayers()) do
+		if pl ~= LP and pl.Character then
+			local cp = pl.Character:FindFirstChild("CollisionPart")
+			if cp and cp:IsA("BasePart") then passTake(cp) end
+		end
+	end
+end
+
+function Guard.passRestore()
+	for model, conn in pairs(Guard.passModels) do
+		pcall(function() conn:Disconnect() end)
+		Guard.passModels[model] = nil
+	end
+	for part in pairs(Guard.passParts) do
+		passClear(part)
+	end
+	Guard.passCount = 0
+end
+
+function Guard.setPass(on)
+	on = on and true or false
+	if on == Guard.passOn then
+		return
+	end
+	Guard.passOn = on
+	if on then
+		Guard.passScan()
+		log(("guard: car pass-through ON -- %d collidable part(s) released"):format(Guard.passCount))
+	else
+		local n = Guard.passCount
+		Guard.passRestore()
+		log(("guard: car pass-through OFF -- %d part(s) restored"):format(n))
+	end
+end
+
 function Guard.release()
 	if #Guard.conns > 0 then
 		log(("guard: released -- %d avoided, %d recovered this session")
@@ -2240,6 +2576,11 @@ end
 -- above Guard, so Binder.start's closure cannot see it, and more to the point
 -- the guard has to arm on cars Binder rejects.
 function Guard.poll()
+	-- Pass-through is independent of the traffic guard: new cars join, and
+	-- respawned wheels come back collidable.
+	if Guard.passOn then
+		U.guard("guard.passScan", Guard.passScan)
+	end
 	if not Guard.enabled then
 		return
 	end
@@ -2257,6 +2598,8 @@ end
 function Guard.shutdown()
 	Guard.enabled = false
 	Guard.release()
+	Guard.passOn = false
+	Guard.passRestore()
 	Guard.status = "off"
 end
 
@@ -2419,6 +2762,8 @@ end
 
 function CashMagnet.set(on)
 	CashMagnet.enabled = on and true or false
+	Config.data.cashMagnet = CashMagnet.enabled
+	Config.save()
 	if CashMagnet.enabled then
 		CashMagnet.swerves = 0
 		CashMagnet.paid = 0
@@ -2438,6 +2783,8 @@ end
 
 function CashMagnet.setAuto(on)
 	CashMagnet.auto = on and true or false
+	Config.data.cashAuto = CashMagnet.auto
+	Config.save()
 	CashMagnet.pending = 0
 	CashMagnet.cooldownUntil = 0
 	if CashMagnet.enabled then
@@ -3343,6 +3690,7 @@ end
 -- PivotTo, then release. The click ray ignores our character/car and respects
 -- CanCollide, so invisible trigger volumes cannot become destinations.
 --==========================================================================
+local GD -- used by ClickTP before the lifecycle implementation below
 ClickTP = {}
 ClickTP.busy = false
 
@@ -3539,9 +3887,10 @@ local function sess()
 end
 
 local function profile()
-	if not UI.prof then
-		local s = sess()
+	local s = sess()
+	if not UI.prof or UI.profOwner ~= s then
 		UI.prof = s and Config.profileFor(s.type) or U.copy(Config.PROFILE_DEFAULT)
+		UI.profOwner = s
 	end
 	return UI.prof
 end
@@ -3553,18 +3902,22 @@ local function commitTune(why)
 		Tune.setState("NEEDS CAR", "sit in a car")
 		return
 	end
+	local edited = U.copy(profile())
+	-- Persist ownership NOW; debounce only the expensive game apply. Resolving
+	-- sess()/UI.prof later mixed car A's edit with car B after a quick swap.
+	Config.setProfile(s.type, edited)
+	log("config: profile queued car=" .. tostring(s.type) .. " gen=" .. tostring(s.gen))
 	if commitTimer then
 		pcall(task.cancel, commitTimer)
 	end
 	commitTimer = task.delay(0.35, function()
 		commitTimer = nil
 		U.guard("ui.commitTune", function()
-			local s2 = sess()
-			if not s2 then
+			if not GD.running or sess() ~= s then
+				log("tune: stale apply skipped car=" .. tostring(s.type) .. " gen=" .. tostring(s.gen))
 				return
 			end
-			Config.setProfile(s2.type, UI.prof)
-			Tune.apply(s2, UI.prof, why or "panel")
+			Tune.apply(s, edited, why or "panel")
 		end)
 	end)
 end
@@ -3814,12 +4167,12 @@ end
 local function buildHandling(page)
 	section(page, "GRIP AND STOPPING")
 	slider(page, {
-		label = "Traction (tire stage)", min = 1, max = 5, step = 1,
+		label = "Traction (tire stage)", min = 1, max = 8, step = 1,
 		get = function() return profile().tireStage end,
 		set = function(v) profile().tireStage = math.floor(v) end,
 		stock = function() return 1 end,
-		fmt = function(v) return ("stage %d  (%.1fx grip)"):format(v, ({ 1, 1.2, 1.4, 1.6, 1.8 })[math.floor(v)] or 1) end,
-		tradeoff = "More grip and less wheelspin. Very high grip makes the car turn in more sharply.",
+		fmt = function(v) return ("stage %d  (%.1fx grip)"):format(v, GRIP_STAGES[math.floor(v)] or 1) end,
+		tradeoff = "Stages 6-8 override the game's 1.8x grip cap. At high speed the game drops wheel friction to near ice, which is what causes high-power spinouts.",
 		live = function()
 			local s = sess()
 			return s and ("live TireGripMult %.2f"):format(s.car:GetAttribute("TireGripMult") or 1) or ""
@@ -3943,8 +4296,24 @@ local function buildHandling(page)
 	})
 	statusRow(page, function() return "crash guard: " .. tostring(Guard.status or "off") end)
 	toggle(page, {
+		label = "Pass through players' cars",
+		desc = "Other players' bodywork already passes through you -- the game ships it non-collidable. Their four wheels and rim parts do not, and at speed those are what spin you out. This makes them non-collidable for your physics only. Your own wheels are never touched, nothing is sent, and everything is put back when you turn it off.",
+		get = function() return Config.data.carPassThrough end,
+		set = function(v)
+			Config.data.carPassThrough = v and true or false
+			Config.save()
+			Guard.setPass(v)
+		end,
+	})
+	statusRow(page, function()
+		if not Guard.passOn then
+			return "pass-through: off"
+		end
+		return ("pass-through: %d part(s) released"):format(Guard.passCount)
+	end)
+	toggle(page, {
 		label = "Cash magnet",
-		desc = "Session-only. Huge near-miss range for cash and cosmetic combo. Your car never teleports.",
+		desc = "Huge near-miss range for cash and cosmetic combo. Your car never teleports. Stays on across reloads once you set it.",
 		get = function() return CashMagnet.enabled end,
 		set = function(v) CashMagnet.set(v) end,
 	})
@@ -3985,7 +4354,7 @@ local function buildStance(page)
 		label = "Link front and rear",
 		desc = "Move one and the other follows.",
 		get = function() return stance().link end,
-		set = function(v) stance().link = v end,
+		set = function(v) stance().link = v; Config.save() end,
 	})
 	slider(page, {
 		label = "Front ride height (studs)", min = 0.3, max = 4, step = 0.05,
@@ -4404,6 +4773,7 @@ local function buildConfig(page)
 		end
 		ESP.set(false)
 		Guard.set(false)
+		Guard.setPass(false)
 		CashMagnet.set(false)
 		UI.prof = nil
 		UI.refreshAll()
@@ -4436,222 +4806,78 @@ function UI.refreshAll()
 end
 
 function UI.build()
-	-- hub.lua publishes __R3ST_HOST immediately before running us. When it is
-	-- there the hub owns the ScreenGui, the window chrome, the blur, the drag
-	-- and the show/hide key, so we build the same 1040x600 body scaled into its
-	-- content host and grow none of those four. Standalone is unchanged.
-	local GH = GENV.__R3ST_HOST
-	local embed = (type(GH) == "table" and typeof(GH.host) == "Instance") and GH or nil
-	UI.embed = embed
-
-	local gui
-	if embed then
-		gui = embed.host
-		log("ui: embedded in R3ST hub host " .. tostring(embed.build))
-	else
-		local host
-		if type(gethui) == "function" then
-			local ok, h = pcall(gethui)
-			if ok and h then host = h end
-		end
-		log(("ui: gethui -> %s (%s)"):format(
-			host and host.Name or "nil", host and host.ClassName or "-"))
-		if host and host:IsA("LayerCollector") then
-			-- gethui() already IS a ScreenGui on Potassium; nesting one renders
-			-- nothing, so use it directly as the host.
-			gui = host
-		else
-			gui = new("ScreenGui", {
-				Name = "g" .. tostring(math.random(100000, 999999)),
-				ResetOnSpawn = false,
-				IgnoreGuiInset = true,
-				ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
-			}, host or LP:FindFirstChildOfClass("PlayerGui"))
-			UI.ownGui = gui
-		end
-	end
-	UI.gui = gui
-
-	if not embed then
-		local blur = new("BlurEffect", { Name = "R3ST_GD_Blur", Size = 4, Enabled = not Config.data.ui.hidden }, game:GetService("Lighting"))
-		UI.blur = blur
-	end
-	local root = new("Frame", {
-		Name = "r" .. tostring(math.random(100000, 999999)),
-		BackgroundColor3 = COL.bg,
-		BackgroundTransparency = embed and 1 or 0,
-		BorderSizePixel = 0,
-		Position = embed and UDim2.new() or UDim2.fromOffset(Config.data.ui.x, Config.data.ui.y),
-		Size = UDim2.fromOffset(1040, 600),
-		-- when the host is RobloxGui we are a sibling of the core frames, so
-		-- sit above them rather than behind
-		ZIndex = 50,
-		-- Embedded, the hub's tab decides what is on screen; a saved "hidden"
-		-- must not leave the tab blank with no way to bring it back.
-		Visible = embed and true or not Config.data.ui.hidden,
-	}, gui)
-	if not embed then
-		corner(root, 10)
-		stroke(root, COL.line)
-	end
-	UI.root = root
-	if embed then
-		-- The body is laid out in fixed offsets, so fit the whole thing rather
-		-- than reflowing seven pages of controls.
-		local uiScale = new("UIScale", { Scale = 1 }, root)
-		local function refit()
-			local hs = embed.host.AbsoluteSize
-			if hs.X < 8 or hs.Y < 8 then return end
-			uiScale.Scale = math.min(1, hs.X / 1040, hs.Y / 600)
-		end
-		refit()
-		UI.conns[#UI.conns + 1] = embed.host:GetPropertyChangedSignal("AbsoluteSize"):Connect(refit)
-	end
-
-	-- sparse decorative star detail
-	for _, sp in ipairs({ { 890, 12 }, { 902, 32 }, { 20, 575 }, { 880, 574 } }) do
-		local st = label(root, "*", 11, COL.white, sp[1], sp[2], 10, 10)
-		st.TextTransparency = 0.72
-	end
-
-	local bar = new("Frame", {
-		BackgroundColor3 = COL.panel,
-		BorderSizePixel = 0,
-		Size = UDim2.new(1, 0, 0, 58),
-	}, root)
-	corner(bar, 10)
-	new("Frame", { BackgroundColor3 = COL.panel, BorderSizePixel = 0,
-		Position = UDim2.fromOffset(0, 46), Size = UDim2.new(1, 0, 0, 12) }, bar)
-	local title = label(bar, "R3ST HUB", 18, COL.white, 20, 4, 120, 28)
-	title.Font = Enum.Font.GothamBold
-	local gameTitle = label(bar, "|   Ghost Driver", 15, COL.dim, 138, 4, 240, 28)
-	gameTitle.Font = Enum.Font.GothamMedium
-	label(bar, BUILD_VERSION, 10, COL.dim, 20, 29, 240, 20)
-
-	local hideBtn = new("TextButton", {
-		BackgroundTransparency = 1, Position = UDim2.new(1, -48, 0, 8),
-		Size = UDim2.fromOffset(34, 34), Font = Enum.Font.GothamBold,
-		TextSize = 14, TextColor3 = COL.dim, Text = "-", AutoButtonColor = false,
-	}, bar)
-	hideBtn.Visible = not embed
-	hideBtn.MouseButton1Click:Connect(function() UI.toggle() end)
-
-	-- drag (the hub drags its own window when we are embedded)
-	local dragging, dragStart, startPos
-	if not embed then
-	bar.InputBegan:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
-			dragging, dragStart, startPos = true, i.Position, root.Position
-		end
-	end)
-	UI.conns[#UI.conns + 1] = UserInputService.InputChanged:Connect(function(i)
-		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
-			local d = i.Position - dragStart
-			root.Position = UDim2.fromOffset(startPos.X.Offset + d.X, startPos.Y.Offset + d.Y)
-		end
-	end)
-	UI.conns[#UI.conns + 1] = UserInputService.InputEnded:Connect(function(i)
-		if dragging and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
-			dragging = false
-			Config.data.ui.x = root.Position.X.Offset
-			Config.data.ui.y = root.Position.Y.Offset
+	assert(UIKit.SHELL_CONTRACT == "1", "R3ST shell contract mismatch")
+	local shell = UIKit.moduleShell({
+		id = "ghost-driver", title = "Ghost Driver", version = BUILD_VERSION,
+		gameId = 10173311467, placeId = 137228775845999,
+		subtitle = "Vehicle tuning, handling and audio",
+		tabs = UI.order, standaloneSize = Vector2.new(Config.data.ui.width or 1040, Config.data.ui.height or 600),
+		live = UI.live, conns = UI.conns, guard = U.guard,
+		onUnload = function() UI.panic() end,
+		onSettings = function() UI.showTab("CONFIG") end,
+		onMove = function(x, y)
+			Config.data.ui.x, Config.data.ui.y = x, y
 			Config.save()
-		end
-	end)
+		end,
+		onResizeCommit = function(w, h)
+			Config.data.ui.width, Config.data.ui.height = w, h
+			Config.save()
+		end,
+	})
+	UI.shell, UI.root, UI.gui = shell, shell.root, shell.screen
+	UI.embed = shell.hosted and GENV.__R3ST_HOST or nil
+	UI.ownGui = not shell.hosted and shell.screen or nil
+	-- Same widget signatures and setters; all seven builders below are unchanged.
+	W = shell.W
+	section, note, slider, toggle = W.section, W.note, W.slider, W.toggle
+	statusRow, button = W.statusRow, W.button
+	local nativeShow = shell.show
+	shell.show = function(name)
+		if not nativeShow(name) then return false end
+		Config.data.ui.tab = name
+		Config.save()
+		task.spawn(UI.refreshAll)
+		return true
 	end
-
-	-- R3ST Hub game navigation sidebar
-	local strip = new("Frame", {
-		BackgroundColor3 = COL.panel,
-		BorderSizePixel = 0,
-		Position = UDim2.fromOffset(10, 68),
-		Size = UDim2.fromOffset(164, 500),
-	}, root)
-	corner(strip, 8)
-	stroke(strip, COL.line)
+	if not shell.hosted then
+		shell.root.AnchorPoint = Vector2.new(0, 0)
+		shell.root.Position = UDim2.fromOffset(Config.data.ui.x, Config.data.ui.y)
+		shell.root.Visible = not Config.data.ui.hidden
+		UI.blur = new("BlurEffect", { Name = "R3ST_GD_Blur", Size = 4,
+			Enabled = shell.root.Visible }, game:GetService("Lighting"))
+	end
 	local builders = {
 		SPEED = buildSpeed, HANDLING = buildHandling, STANCE = buildStance,
 		EXHAUST = buildExhaust, AUDIO = buildAudio, ESP = buildESP, CONFIG = buildConfig,
 	}
-	local btns = {}
-	for i, name in ipairs(UI.order) do
-		local b = new("TextButton", {
-			BackgroundColor3 = COL.panel,
-			BorderSizePixel = 0,
-			Position = UDim2.fromOffset(10, 14 + (i - 1) * 48),
-			Size = UDim2.fromOffset(144, 38),
-			Font = Enum.Font.GothamBold,
-			TextSize = 11,
-			TextColor3 = COL.dim,
-			Text = name,
-			AutoButtonColor = false,
-		}, strip)
-		corner(b, 5)
-		local s = stroke(b, COL.line)
-		btns[name] = { b = b, s = s }
-		b.MouseButton1Click:Connect(function() UI.showTab(name) end)
-	end
-	local hubBtn = new("TextButton", {
-		BackgroundColor3 = COL.panel, BorderSizePixel = 0,
-		Position = UDim2.fromOffset(10, 446), Size = UDim2.fromOffset(144, 38),
-		Font = Enum.Font.GothamBold, TextSize = 11, TextColor3 = COL.dim,
-		Text = "‹  HUB", AutoButtonColor = false,
-	}, strip)
-	corner(hubBtn, 5)
-	stroke(hubBtn, COL.line)
-	-- Embedded we ARE in the hub; its sidebar is the navigation.
-	hubBtn.Visible = not embed
-	hubBtn.MouseButton1Click:Connect(function()
-		local ok, chunk = pcall(loadfile, "hub.lua")
-		if not ok or type(chunk) ~= "function" then return end
-		local current = GENV[GKEY]
-		if current and type(current.unload) == "function" then current.unload() end
-		pcall(chunk)
-	end)
-
-	local body = new("Frame", {
-		BackgroundColor3 = COL.panel,
-		BorderSizePixel = 0,
-		Position = UDim2.fromOffset(184, 68),
-		Size = UDim2.fromOffset(846, 500),
-	}, root)
-	corner(body, 8)
-	stroke(body, COL.line)
-
 	for _, name in ipairs(UI.order) do
-		local page = new("ScrollingFrame", {
-			Name = name,
-			BackgroundTransparency = 1,
-			BorderSizePixel = 0,
-			Position = UDim2.fromOffset(10, 8),
-			Size = UDim2.fromOffset(826, 484),
-			CanvasSize = UDim2.new(),
-			ScrollBarThickness = 3,
-			ScrollBarImageColor3 = COL.line,
-			Visible = false,
-		}, body)
-		-- Two columns of cards, template width. The page builders below never
-		-- position anything themselves.
-		W.page(page, { width = 820 })
+		local page = shell.page(name)
 		UI.tabs[name] = page
 		local built = U.guard("ui.build." .. name, builders[name], page)
-		page.CanvasSize = UDim2.fromOffset(0, nextY(page) + 12)
 		log(("ui: page %s %s, %d children"):format(
 			name, built and "ok" or "FAILED", #page:GetChildren()))
 	end
-
-	UI.btns = btns
-	label(root, "RightShift hide  |  RightControl unload  |  Delete panic restore", 10, COL.dim, 20, 574, 700, 16)
-
+	if not shell.hosted then
+		section(UI.tabs.CONFIG, "WINDOW")
+		button(UI.tabs.CONFIG, "Hide panel", "RightShift brings it back", function() UI.toggle() end, true)
+		button(UI.tabs.CONFIG, "Open R3ST Hub", nil, function()
+			local ok, chunk = pcall(loadfile, "hub.lua")
+			if not ok or type(chunk) ~= "function" then return end
+			local current = GENV[GKEY]
+			if current and type(current.unload) == "function" then current.unload() end
+			pcall(chunk)
+		end, true)
+	end
 	UI.showTab(Config.data.ui.tab)
-	log(("ui: built root=%s parent=%s visible=%s pos=%d,%d size=%dx%d")
-		:format(root.Name, tostring(root.Parent and root.Parent:GetFullName()),
-			tostring(root.Visible), root.Position.X.Offset, root.Position.Y.Offset,
-			root.Size.X.Offset, root.Size.Y.Offset))
+	shell.ready()
+	log("ui: responsive shell contract=1 hosted=" .. tostring(shell.hosted) .. " scale=1")
 	logflush()
 end
 
 function UI.showTab(name)
+	if UI.shell then
+		return UI.shell.show(UI.tabs[name] and name or "SPEED")
+	end
 	if not UI.tabs[name] then
 		name = "SPEED"
 	end
@@ -4695,7 +4921,7 @@ end
 --==========================================================================
 -- Boot and teardown
 --==========================================================================
-local GD = {}
+GD = {}
 GD.conns = {}
 GD.running = true
 
@@ -4709,15 +4935,23 @@ function GD.onBound(ev, s)
 		-- cars this session never binds. Releasing it on unbind would also
 		-- leave Guard.boundCar stale, so re-entering the same car never
 		-- re-armed.
-		if s and UI.prof then
+		if commitTimer then pcall(task.cancel, commitTimer); commitTimer = nil end
+		if s and UI.prof and UI.profOwner == s then
 			Config.setProfile(s.type, UI.prof)
+			Config.saveNow()
+			log("config: profile flushed on unbind car=" .. tostring(s.type))
+			UI.prof, UI.profOwner = nil, nil
 		end
-		UI.prof = nil
 		Tune.setState("NEEDS CAR", "no car")
 		return
 	end
 	-- bound
 	U.guard("boot.bind", function()
+		if not GD.running or Binder.session ~= s then return end
+		UI.prof = Config.profileFor(s.type)
+		UI.profOwner = s
+		log(("config: profile restored car=%s gen=%s power=%s rpm=%s"):format(
+			tostring(s.type), tostring(s.gen), tostring(UI.prof.powerMult), tostring(UI.prof.rpmMult)))
 		Tune.captureStock(s)
 		DriveHook.measureWheels(s)
 		-- Wait out Drive's WaitForChild + curve build. Without this, a fast
@@ -4731,6 +4965,7 @@ function GD.onBound(ev, s)
 					local deadline = os.clock() + 5
 					while Binder.session == s and not s.drv and os.clock() < deadline do
 						task.wait(0.25)
+						if not GD.running or Binder.session ~= s then return end
 						if DriveHook.ensure(s, 0) then
 							log("drive: late attach recovered")
 							local prof = UI.prof or Config.profileFor(s.type)
@@ -4743,6 +4978,10 @@ function GD.onBound(ev, s)
 				end)
 			end)
 		end
+		if not GD.running or Binder.session ~= s then
+			log("bind: stale continuation skipped gen=" .. tostring(s.gen))
+			return
+		end
 		-- stage multiplier measured, never assumed: Horsepower is exactly
 		-- BaseHorsepower x the stage product (0562.lua:490)
 		local baseHP = tonumber(s.car:GetAttribute("BaseHorsepower"))
@@ -4751,7 +4990,6 @@ function GD.onBound(ev, s)
 		else
 			s.stageMult = 1
 		end
-		UI.prof = Config.profileFor(s.type)
 		Aero.dragMult = UI.prof.dragPct or 1
 		Aero.downMult = UI.prof.downPct or 1
 		Aero.bind(s)
@@ -4764,6 +5002,9 @@ function GD.onBound(ev, s)
 end
 
 function UI.detach()
+	if UI.shell then UI.shell.destroy(); UI.shell = nil end
+	if UI.blur then UI.blur:Destroy(); UI.blur = nil end
+	UI.ownGui = nil
 	for _, c in ipairs(UI.conns) do
 		pcall(function() c:Disconnect() end)
 	end
@@ -4792,6 +5033,11 @@ function GD.unload(silentRestore)
 		return
 	end
 	GD.running = false
+	if commitTimer then pcall(task.cancel, commitTimer); commitTimer = nil end
+	local current = Binder.session
+	if current and UI.prof and UI.profOwner == current then
+		Config.setProfile(current.type, UI.prof)
+	end
 	U.guard("unload.tune", function()
 		local s = Binder.session
 		if s and silentRestore ~= false then
@@ -4815,7 +5061,10 @@ function GD.unload(silentRestore)
 		pcall(task.cancel, GD.tickThread)
 		GD.tickThread = nil
 	end
-	if UI.ownGui then
+	if UI.shell then
+		pcall(UI.shell.destroy)
+		UI.shell = nil
+	elseif UI.ownGui then
 		pcall(function() UI.ownGui:Destroy() end)
 	elseif UI.root then
 		pcall(function() UI.root:Destroy() end)
@@ -4840,7 +5089,9 @@ local function main()
 	log("resumed: clicktp=" .. (Config.data.clickTeleport and "ON (RightAlt + left-click)" or "OFF"))
 
 	Audio.start()
-	ESP.enabled = Config.data.esp.enabled == true
+	-- Through the setter, not the flag: assigning ESP.enabled alone left the
+	-- host and tags uncreated, so a saved ON came back visually OFF.
+	ESP.set(Config.data.esp.enabled == true)
 
 	UI.build()
 	local swerveBridge = ReplicatedStorage:FindFirstChild("SwerveUIBridge")
@@ -4859,6 +5110,11 @@ local function main()
 	-- Independent of Binder on purpose: crash protection has to arm on cars
 	-- that never produce a tune session.
 	Guard.set(Config.data.crashGuard)
+	Guard.setPass(Config.data.carPassThrough)
+	CashMagnet.setAuto(Config.data.cashAuto ~= false)
+	if Config.data.cashMagnet then
+		CashMagnet.set(true)
+	end
 
 	GD.conns[#GD.conns + 1] = UserInputService.InputBegan:Connect(function(i, gpe)
 		if gpe then

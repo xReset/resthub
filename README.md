@@ -10,8 +10,14 @@ loadstring(httpget("https://raw.githubusercontent.com/xReset/resthub/main/loader
 
 The loader fetches a release manifest, downloads executable files from its immutable 40-character commit revision, verifies SHA-256 hashes, compiles the complete release before updating cache, and loads only the module matching the current Roblox universe/place. Current game modules:
 
+- A Bizarre Day : Classic (`abd_item_esp.lua`) — Arrow, Requiem Arrow and Rokakaka Fruit ESP
 - Blue Lock Rivals (`blr_hub.lua`)
 - Ghost Driver (`gd2.lua`)
+- Dungeon Quest Reborn (`dqr_hub.lua`)
+
+Release `2026-10-19.1` includes the shared logger for fresh installs. Loader v4
+fetches and verifies it before Hub startup. The ABD module was visually confirmed
+in the canonical local build; the public-loader path still needs a client smoke test.
 
 ## Diagnostics
 

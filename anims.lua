@@ -1,4 +1,4 @@
--- R3ST Hub / Anims v2026-09-01.13 (2026-09-01)
+-- R3ST Hub / Anims v2026-09-09.1 (2026-09-09)
 -- M7-derived local animation pack browser: 21 custom, 35 Roblox, 24 UGC.
 -- Rung 3: writes stock Animate IDs and restarts its server-created Animator tracks.
 -- Server sees: normal replicated character tracks; no remotes fired.
@@ -6,6 +6,9 @@
 -- ENFORCEMENT=0, REPORTING=0, CLIENT INSPECTION=0, LOG MONITORING=0.
 -- Re-inject safe; K = restore originals + unload. RightShift = hide/show.
 -- Changelog:
+--   .18 R6 rigs are left completely untouched. The catalog is R15-only, so the
+--      old path wrote ids an R6 Animator ignores and still ran the Animate
+--      restart, destroying the stock tracks: the character froze.
 --   .17 respawn resume verifies the write stuck and re-asserts while it has not.
 --      Roblox regenerates the Animate folders after the character replicates,
 --      so the single +1s apply was overwritten and needed a manual re-apply.
@@ -36,7 +39,7 @@
 --   .2 exclusive track controller; hard stop/destroy on switch and unload.
 --   .1 captured catalog, custom/Roblox/UGC tabs, per-slot sources, persistence.
 
-local BUILD_VERSION = "anims-2026-09-02.17"
+local BUILD_VERSION = "anims-2026-09-09.1"
 local GKEY = "__ANIMS_GUI"
 local CONFIG_FILE = "anims_config.json"
 local LOG_FILE = "logs/anims.log"
@@ -251,9 +254,25 @@ local function restartStockAnimate(character, finalDisabled)
 	end
 end
 
+-- The catalog is R15 ids (references/anims-m7.md S5). An R6 Animator cannot play
+-- them, so the old path wrote ids the rig ignored AND still ran the Animate
+-- restart -- stock tracks destroyed, nothing valid to replace them: a frozen R6
+-- character. Fail closed and leave the rig completely untouched instead.
+local function isR15(character)
+	local humanoid = character and character:FindFirstChildOfClass("Humanoid")
+	if not humanoid then return false end
+	return humanoid.RigType == Enum.HumanoidRigType.R15
+end
+
 local function applyResolved(reason)
 	local character = localPlayer.Character
 	if not character then log("apply failed: no character") return false end
+	if not isR15(character) then
+		state.r6Blocked = true
+		log(string.format("apply skipped reason=%s rig=R6 (catalog is R15-only)", tostring(reason)))
+		return false
+	end
+	state.r6Blocked = false
 	local animate = character:FindFirstChild("Animate")
 	if state.animateBaseline == nil and animate and animate:IsA("LocalScript") then state.animateBaseline = animate.Disabled end
 	restartStockAnimate(character, false)
@@ -497,6 +516,7 @@ local function openDropdown(rowFrame, slot, box)
 	local results = new("ScrollingFrame", {
 		Size = UDim2.new(1, -8, 1, -8), Position = UDim2.fromOffset(4, 4), BackgroundTransparency = 1,
 		BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = COLORS.accent,
+		Active = true, ScrollingDirection = Enum.ScrollingDirection.Y,
 		CanvasSize = UDim2.new(), ZIndex = 51,
 	}, panel)
 	state.dropdown = panel
@@ -779,6 +799,10 @@ local function buildGui()
 	local list = new("ScrollingFrame", {
 		Size = UDim2.new(1, 0, 1, -94), Position = UDim2.fromOffset(0, 46),
 		BackgroundColor3 = COLORS.panel, BorderSizePixel = 0, ScrollBarThickness = 3,
+		-- Active=true or the wheel never reaches it: a ScrollingFrame defaults to
+		-- false and refuses to scroll however right its CanvasSize is. This list
+		-- was measured live at canvas 2042 against a 522 viewport, unscrollable.
+		Active = true, ScrollingDirection = Enum.ScrollingDirection.Y,
 		ScrollBarImageColor3 = COLORS.line, CanvasSize = UDim2.new(),
 	}, body)
 	corner(list, 9)
@@ -806,7 +830,11 @@ local function buildGui()
 		saveConfig()
 		if Config.enabled then
 			applyResolved("enabled")
-			setStatus("animations enabled: " .. Config.selectedPack, true)
+			if state.r6Blocked then
+				setStatus("R6 character — the pack catalog is R15-only; nothing applied")
+			else
+				setStatus("animations enabled: " .. Config.selectedPack, true)
+			end
 		else
 			restoreOriginals()
 			setStatus("animations disabled; originals restored")
@@ -817,7 +845,11 @@ local function buildGui()
 	connect(reapply.Activated, function()
 		if Config.enabled then
 			applyResolved("manual re-apply")
-			setStatus("re-applied " .. Config.selectedPack, true)
+			if state.r6Blocked then
+				setStatus("R6 character — the pack catalog is R15-only; nothing applied")
+			else
+				setStatus("re-applied " .. Config.selectedPack, true)
+			end
 		else
 			setStatus("Anims is OFF — enable it first")
 		end

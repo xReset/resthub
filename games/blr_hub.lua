@@ -1,4 +1,4 @@
--- Blue Lock Rivals Hub v2026-09-01.25 (2026-09-01)
+-- Blue Lock Rivals Hub v2026-09-07.35 (2026-09-07)
 -- PlaceId 18668065416. Dump 2026-08-28T07-29-39Z.
 -- Client limiters, all module-level locals in ReplicatedStorage.Controllers:
 --   BallController (0870) Slide gate `u10 > tick()` :443, set :461-467;
@@ -11,21 +11,45 @@
 --   StatesController (1138) ShotPowerMultiplier, reset to 1 each Heartbeat
 --     (:129 -> :244), read at the shot at 0870:1284.
 --   Stamina gates read LocalPlayer.PlayerStats.Stamina (NumberValue) <= 10
---     (0870:447, 0870:578); drain is StaminaService.DecreaseStamina:Fire(10).
--- Posture: rung 3/4 (local module state, suppressed local remote fire). Nothing
--- new is sent. The server DOES see a higher Dribble/Slide/Ability call rate when
--- those toggles are ON, so they boot OFF per potassium-dev 0.2b.
--- Dump has no anticheat_deep.txt; grepped this dump's 3094 client scripts for
--- GetLogHistory / MessageOut / getgenv / hookfunction / checkcaller: zero hits.
--- Every :Kick( is Cmdr admin (0312, 0341, 0366, 2216). Server bans stay invisible.
--- Note 0870:587 `print("Dribbled at", tick())` - the GAME prints per dribble, so
--- spamming NoDribbleCD floods the client console. No game code reads it back.
+--     (0870:447, 0870:578); drain is StaminaService.DecreaseStamina:Fire(10),
+--     which we no longer touch (.34) -- the pin alone opens every gate.
+-- Posture: local wrappers plus server-visible modified cooldown reports/cadence
+-- (rung 6). September 4 dump: inspection 0, log-monitoring matches 7; 3210
+-- collects console history. Silence is not protection from server enforcement.
+-- BAC-6206 followed Yukimiya awakening with NoAbilityCD ON; cause unproven.
+-- .31 preserves native cooldown calls and deadlines during the awakening
+-- lifecycle (September 4 0824:198-229). No new remote or movement writes.
+-- Ordinary NoAbilityCD still reports shortened cooldowns (0816:40-60,89-106);
+-- preserving awakening is NOT a verified anticheat bypass.
 -- Re-inject safe; K unload; P panic; RShift panel.
 -- Settings persist to blr_hub_config.json and EVERY toggle resumes as saved (.9,
 -- user instruction). The ones that fire a real remote -- NoDribbleCD, NoSlideCD,
 -- NoAbilityCD, CFLocker -- are named in the boot log on the "ARMED" line so an
 -- armed feature is never a surprise. P panic clears them all.
 -- Changelog:
+--  .35  Kick telemetry. Every journal record now carries the SERVER's uptime
+--       (workspace.DistributedGameTime) and seconds-since-inject; stamina_pin
+--       is throttled to 1 Hz because pinning every frame dropped 2542 records
+--       in the window a kick had to be read from; and an Observe-only toggle
+--       suspends every feature while the journal keeps running, so a control
+--       session is possible without unloading. tools/blr_timeline.py joins the
+--       Roblox log's join/kick lines to the journal by UTC.
+--       Measured: 5 kicks, 176-234s after Connection accepted, mean 208.6s,
+--       across builds .31/.33/.34 and 5 different BAC codes. The kick does not
+--       follow an action; .34 (stamina suppression removed) was kicked too.
+--  .34  Infinite stamina is now a LOCAL PIN ONLY. The DecreaseStamina hook and
+--       its suppression are gone, so the server's own stamina ledger drains
+--       exactly as it would unmodified. Nothing else changed. This is a
+--       divergence removal, not a proven fix for any BAC code.
+--  .33  Record stamina BEFORE our refill, running state and actual character
+--       speed; a post-refill snapshot of 100 alone hid the relevant evidence.
+--  .32  Persistent, UTC-stamped local telemetry: actions, cooldown reports,
+--       stamina suppression, shot samples, goals and full config/state snapshots.
+--       BAC-8205 occurred on .31 without awakening; cause remains unproven.
+--       No gameplay behavior changed. Host tools/blr_incidents.py captures kicks.
+--  .31  Leave awakening cooldowns, slot deadlines and cutscene state untouched
+--       from Awakening() entry through its native cutscene/reset deadlines.
+--       Ordinary NoAbilityCD resumes afterward. BAC-6206 fix unverified live.
 --  .25  CF Locker now treats Select:Fire as pending and stops only after the
 --       CF ObjectValue confirms LocalPlayer. Previously `claimSeat` returned
 --       true on send, so one refused/contested packet ended all retries while
@@ -260,7 +284,23 @@
 --       resumes; the remote-firing ones are named in the boot log instead of
 --       being forced OFF (deliberate override of potassium-dev 0.2b).
 
-local BUILD_VERSION = "2026-09-01.28"
+--  .29  The Sae awakening (Shoulder Push) freeze with NoAbilityCD on. A cutscene
+--       skill raises Camera.Cutscene as well as States.Ability (2863:939) and
+--       1138:281 pins WalkSpeed on either, so the old watchdog cleared one flag
+--       and left the player frozen. It also only stamps its slot in the ABC
+--       cleanup (2863:944), so the gate stayed open mid-cutscene and a re-press
+--       re-entered clientCutsceneSkill, ABC:Clean()ed the live cast (2863:958)
+--       and restarted the freeze. Cutscenes now count as an active cast, hold
+--       every slot shut while they run, and the watchdog clears both flags.
+
+--  .30  Sae base C (OffBalance) was re-enterable mid-cast for the same reason the
+--       cutscene path was. Our AbilityCooldown wrapper writes 0.05s, but the
+--       move's own target scan runs 0.2s (0750:122), so the gate re-opened inside
+--       the cast and a second press ABC:Clean()ed the live scan (0750:37). The
+--       casting slot now stays shut for the length of the cast; the other two are
+--       untouched and the real 40s cooldown is still bypassed.
+
+local BUILD_VERSION = "2026-09-07.35"
 local EXPECTED_PLACE = 18668065416
 -- Universe id. A VIP / private server is the SAME experience but the client can
 -- land on a different PlaceId inside it, so a PlaceId-only gate fails closed in
@@ -287,8 +327,63 @@ if type(G[GKEY]) == "table" and type(G[GKEY].destroy) == "function" then
 	pcall(G[GKEY].destroy)
 end
 
+-- Per-inject segmented journal. Rewrites only this session's current 128-line
+-- segment; never overwrites earlier sessions. No appendfile dependency or upload.
+local Trace = (function()
+	local t = { seq = 0, segment = 1, lines = {}, counts = {}, dropped = 0, errors = 0 }
+	t.bootClock = os.clock()
+	t.session = os.date("!%Y%m%dT%H%M%SZ") .. "_" .. HttpService:GenerateGUID(false)
+	t.prefix = "logs/blr_trace_" .. t.session .. "_"
+	function t.emit(event, data)
+		t.counts[event] = (t.counts[event] or 0) + 1
+		local now = os.clock()
+		if not t.window or now - t.window >= 1 then
+			t.window, t.rate = now, 0
+		end
+		-- Bound synchronous disk work even under held-key/re-entry floods. The
+		-- next record carries the loss count; absence never means no action.
+		if t.rate >= 40 then
+			t.dropped = t.dropped + 1
+			return false
+		end
+		t.rate = t.rate + 1
+		t.seq = t.seq + 1
+		-- dgt is the SERVER's uptime (workspace.DistributedGameTime), not ours.
+		-- Five kicks all landed 176-234s after Connection accepted; if they also
+		-- cluster on one dgt period, the trigger is a server-side sweep and no
+		-- amount of per-action tuning moves it. sinceBoot anchors to inject;
+		-- utc_ms is what tools/blr_timeline.py joins to the Roblox join line.
+		local dgt = nil
+		pcall(function()
+			dgt = workspace.DistributedGameTime
+		end)
+		local ok, encoded = pcall(HttpService.JSONEncode, HttpService, {
+			version = 2, session = t.session, build = BUILD_VERSION, seq = t.seq,
+			utc_ms = DateTime.now().UnixTimestampMillis, clock = now,
+			dgt = dgt, sinceBoot = now - t.bootClock,
+			event = event, data = data, dropped = t.dropped, errors = t.errors,
+		})
+		if not ok then
+			t.errors = t.errors + 1
+			return false
+		end
+		if #t.lines >= 128 then
+			t.lines = {}
+			t.segment = t.segment + 1
+		end
+		t.lines[#t.lines + 1] = encoded
+		local saved = pcall(writefile, t.prefix .. tostring(t.segment) .. ".jsonl", table.concat(t.lines, "\n") .. "\n")
+		if not saved then
+			t.errors = t.errors + 1
+		end
+		return saved
+	end
+	return t
+end)()
+
 local logLines = {}
 local function log(message)
+	Trace.emit("log", { message = tostring(message) })
 	logLines[#logLines + 1] = os.date("[%H:%M:%S] ") .. tostring(message)
 	if #logLines > 160 then
 		table.remove(logLines, 1)
@@ -308,7 +403,7 @@ local FIRES_REMOTE = {
 	NoAbilityCD = "ability remotes + replicateCooldowns (0815:106)",
 	CFLocker = "TeamService.Select:Fire (1145:213)",
 	-- ShotPower, AbilityPower and InfiniteStamina send nothing: they are local
-	-- module fields and a suppressed local Fire.
+	-- module fields and a local NumberValue write that does not replicate.
 }
 
 local DEFAULTS = {
@@ -331,7 +426,11 @@ local DEFAULTS = {
 	-- extra speed does not also become extra loft. Lower = flatter and it drops
 	-- sooner, because a lower apex is a shorter fall.
 	HeaderArcTrim = 0.70,
-	InfiniteStamina = false, -- rung 3: suppresses DecreaseStamina, pins local Value
+	InfiniteStamina = false, -- rung 3: pins the local Value only; the drain remote runs
+	-- Control arm of the kick investigation: suspends every gameplay effect and
+	-- keeps the journal running. Persists, so a control session survives a
+	-- re-inject and cannot be lost by forgetting to re-tick it.
+	ObserveOnly = false,
 	-- rung 3: forces the game's OWN release path when the mouse is physically up,
 	-- and softens a tap so it stays a dribble touch instead of a shot.
 	TapGuard = false,
@@ -501,7 +600,6 @@ local S = {
 	echoCount = 0,             -- UpdateDribbleCooldown broadcasts seen, from anyone
 	census = {},               -- methodName -> the one-shot upvalue census already ran
 	lastClaim = nil,           -- the last seconds value we actually sent
-	staminaHook = nil,
 	balancingOrig = {},
 	balancing = nil,
 	states = nil,
@@ -528,6 +626,74 @@ local S = {
 		status = "idle",
 	},
 }
+
+-- Snapshot reads only. No generic remote/metatable recorder, log listener,
+-- input synthesis or movement writes. Local calls are NOT server acceptance.
+local function traceState(event, data)
+	if not S.alive then
+		return
+	end
+	data = data or {}
+	local ok, err = pcall(function()
+		data.cfg = {}
+		for key, value in next, CFG do
+			if type(value) == "boolean" or type(value) == "number" then
+				data.cfg[key] = value
+			end
+		end
+		data.style = S.style
+		data.counts = Trace.counts
+		data.awakeningProtected = S.awakeningCharacter ~= nil or S.awakeningCalling == true
+		data.cooldowns = {}
+		for _, field in ipairs({"AbilityOne", "AbilityTwo", "AbilityThree", "AbilityUsed"}) do
+			local value = S.iface and S.iface[field]
+			if type(value) == "number" then
+				data.cooldowns[field] = value - tick()
+			end
+		end
+		local function valueAt(parent, name)
+			local child = parent and parent:FindFirstChild(name)
+			return child and child.Value
+		end
+		local stats = LP:FindFirstChild("PlayerStats")
+		data.stamina = valueAt(stats, "Stamina")
+		data.staminaBeforeLastPin = S.staminaBeforeLastPin
+		data.awakened = valueAt(stats, "InAwakening")
+		data.awakeningBar = valueAt(stats, "AwakeningBar")
+		local char = LP.Character
+		local values = char and char:FindFirstChild("Values")
+		data.hasBall = valueAt(values, "HasBall")
+		data.inCutscene = valueAt(values, "InCutscene")
+		data.dribbling = valueAt(values, "Dribbling")
+		data.sliding = valueAt(values, "Sliding")
+		local hum = char and char:FindFirstChildOfClass("Humanoid")
+		data.walkSpeed = hum and hum.WalkSpeed
+		local root = char and char:FindFirstChild("HumanoidRootPart")
+		data.characterSpeed = root and root.AssemblyLinearVelocity.Magnitude
+		local gv = ReplicatedStorage:FindFirstChild("GameValues")
+		data.matchState = valueAt(gv, "State")
+		data.matchTimer = valueAt(gv, "Timer")
+		data.globalAwakening = valueAt(gv, "AwakeningCutscene")
+		local states = S.states
+		data.shotMultiplier = states and states.ShotPowerMultiplier
+		data.abilityActive = states and states.States and states.States.Ability
+		data.running = states and states.States and states.States.Running
+		data.cameraCutscene = states and states.Camera and states.Camera.Cutscene
+		local ball = valueAt(ReplicatedStorage, "Football")
+		if typeof(ball) == "Instance" and ball:IsA("BasePart") then
+			local p, v = ball.Position, ball.AssemblyLinearVelocity
+			data.ballPosition = {p.X, p.Y, p.Z}
+			data.ballVelocity = {v.X, v.Y, v.Z}
+			data.ballSpeed = v.Magnitude
+			data.ballOnPlayer = valueAt(ball, "OnPlayer")
+			data.ballBeforeLocal = valueAt(ball, "Before") == char
+		end
+	end)
+	if not ok then
+		data.snapshotError = tostring(err)
+	end
+	Trace.emit(event, data)
+end
 
 -- Write the live numbers back into the style they belong to. Called from
 -- saveConfig, so it runs on every slider commit without the sliders knowing.
@@ -701,6 +867,7 @@ local function wrapBallAction(ctrl, methodName, cfgKey)
 	end
 	local wrapper
 	wrapper = function(self, ...)
+		traceState("action_before", { action = methodName })
 		-- Shoot carries the volley guard; Dribble/Slide carry the cooldown clear.
 		if methodName == "Shoot" then
 			if S.alive and CFG.VolleyGuard and inDribbleGap() then
@@ -724,6 +891,7 @@ local function wrapBallAction(ctrl, methodName, cfgKey)
 			cleared = clearFutureTickUpvalues(orig)
 		end
 		local results = table.pack(orig(self, ...))
+		traceState("action_after", { action = methodName, cleared = cleared, enabled = on == true })
 		if on then
 			clearFutureTickUpvalues(orig)
 			-- First three calls only: proof in the log that the keypress reaches
@@ -794,6 +962,7 @@ local function hookDribbleFire()
 	local wasOwn = rawget(sig, "Fire") ~= nil
 	local wrapper
 	wrapper = function(self, jobId, seconds, ...)
+		local nativeSeconds = seconds
 		if S.alive and CFG.DribbleCDClaim and type(seconds) == "number" then
 			local claim = math.max(tonumber(CFG.DribbleCDClaimSeconds) or 1, CLAIM_FLOOR)
 			if claim < seconds then
@@ -806,6 +975,7 @@ local function hookDribbleFire()
 				seconds = claim
 			end
 		end
+		traceState("dribble_send", { nativeSeconds = nativeSeconds, sentSeconds = seconds })
 		return orig(self, jobId, seconds, ...)
 	end
 	local ok = pcall(function()
@@ -1022,6 +1192,75 @@ end
 -- Restore is by identity (`current == the wrapper we installed`), never by
 -- guessing from upvalues, and `S.orig*` is never cleared.
 local ORIG_KEY = "__blr_orig_AbilityCooldown"
+local ORIG_AWAKEN_KEY = "__blr_orig_Awakening"
+
+-- Track the game's Awakening() lifecycle, not the G key: remapped keys/mobile
+-- use the same method, and ordinary cutscene abilities must keep their own path.
+-- 0824 sets InCutscene before requesting awakening; Yukimiya 0870 clears it
+-- after its cutscene. Also retain any native cooldown deadline beyond that end.
+local function awakeningCooldownProtected()
+	if S.awakeningCalling then
+		return true
+	end
+	local char = S.awakeningCharacter
+	if not char then
+		return false
+	end
+	if char == LP.Character then
+		local values = char:FindFirstChild("Values")
+		local cutscene = values and values:FindFirstChild("InCutscene")
+		local camera = S.states and S.states.Camera
+		-- Awakening's HasBall callback can clear InCutscene before the camera
+		-- finishes (0824:177-180); do not resume pinning during that gap.
+		local gameValues = ReplicatedStorage:FindFirstChild("GameValues")
+		local awakening = gameValues and gameValues:FindFirstChild("AwakeningCutscene")
+		if (cutscene and cutscene.Value) or (camera and camera.Cutscene)
+			or (awakening and awakening.Value) or tick() < (S.awakeningCooldownUntil or 0) then
+			return true
+		end
+	end
+	S.awakeningCharacter = nil
+	S.awakeningCooldownUntil = nil
+	log("awakening cooldown protection ended; NoAbilityCD=" .. tostring(CFG.NoAbilityCD))
+	return false
+end
+
+local function hookAwakening(ctrl)
+	if type(ctrl) ~= "table" or type(ctrl.Awakening) ~= "function" then
+		log("AwakeningController unavailable - awakening cooldown protection NOT installed")
+		return
+	end
+	local orig = rawget(ctrl, ORIG_AWAKEN_KEY) or ctrl.Awakening
+	ctrl[ORIG_AWAKEN_KEY] = orig
+	local wrapper = function(...)
+		if not S.alive or not CFG.NoAbilityCD then
+			return orig(...)
+		end
+		S.awakeningCharacter = LP.Character
+		S.awakeningCalling = true
+		log("awakening cooldown protection begin; native cooldowns preserved")
+		local result = table.pack(pcall(orig, ...))
+		S.awakeningCalling = false
+		awakeningCooldownProtected() -- rejected attempts have no cutscene to wait for
+		if not result[1] then
+			error(result[2], 0)
+		end
+		return table.unpack(result, 2, result.n)
+	end
+	S.awakeningController, S.origAwakening, S.awakeningWrapper = ctrl, orig, wrapper
+	ctrl.Awakening = wrapper
+	-- Reinjecting during an awakening must not resume slot pinning mid-reset.
+	local stats = LP:FindFirstChild("PlayerStats")
+	local awakened = stats and stats:FindFirstChild("InAwakening")
+	if awakened and awakened.Value and LP.Character then
+		local values = LP.Character:FindFirstChild("Values")
+		local cutscene = values and values:FindFirstChild("InCutscene")
+		if cutscene and cutscene.Value then
+			S.awakeningCharacter = LP.Character
+		end
+	end
+	log("AwakeningController wrapped for native cooldown protection")
+end
 
 -- The minimum AbilityCooldown does for its caller: stamp the slot deadline on
 -- the table it was given (0815:105). Used only when the real function cannot be
@@ -1058,9 +1297,11 @@ local function hookAbilityCooldown()
 
 	local wrapper
 	wrapper = function(slot, abilityName, tableRef, seconds, flag)
+		local nativeSeconds = seconds
 		-- `orig` is a local upvalue: valid for the life of this closure, even if
 		-- this script is long gone.
-		if S.alive and CFG.NoAbilityCD then
+		local preserve = S.alive and awakeningCooldownProtected()
+		if S.alive and CFG.NoAbilityCD and not preserve then
 			-- Every cast routes through here, so this is the one place that knows a
 			-- cast just started and which slot it used. The hold stops a re-press
 			-- from orphaning the cast; nothing is inferred from it beyond that.
@@ -1076,6 +1317,8 @@ local function hookAbilityCooldown()
 			-- `p16 > 1` only).
 			seconds = 0.05
 		end
+		traceState("cooldown_before", { slot = tostring(slot), ability = tostring(abilityName),
+			nativeSeconds = nativeSeconds, passedSeconds = seconds, protected = preserve == true })
 		-- SURVIVING A POISONED CHAIN.
 		-- `orig` here can be a wrapper left behind by an OLDER inject of this
 		-- script (before .19 stashed the true original), and those forward to a
@@ -1092,7 +1335,17 @@ local function hookAbilityCooldown()
 			return fallbackCooldown(slot, tableRef, seconds)
 		end
 		local okCall, err = pcall(orig, slot, abilityName, tableRef, seconds, flag)
+		traceState("cooldown_after", { slot = tostring(slot), ability = tostring(abilityName),
+			ok = okCall, error = not okCall and tostring(err) or nil })
 		if okCall then
+			if preserve then
+				local field = SLOT_FIELD[tostring(slot)]
+				local deadline = field and type(tableRef) == "table" and tableRef[field]
+				if type(deadline) == "number" then
+					S.awakeningCooldownUntil = math.max(S.awakeningCooldownUntil or 0, deadline)
+				end
+				log(("awakening native cooldown slot=%s seconds=%s"):format(tostring(slot), tostring(seconds)))
+			end
 			return
 		end
 		S.cdChainBroken = true
@@ -1105,6 +1358,10 @@ local function hookAbilityCooldown()
 end
 
 local function unhookAbilityCooldown()
+	local awakening = S.awakeningController
+	if awakening and rawequal(awakening.Awakening, S.awakeningWrapper) then
+		awakening.Awakening = S.origAwakening
+	end
 	local legacy = S.legacyCD
 	if legacy and S.cdWrapper and rawequal(legacy.AbilityCooldown, S.cdWrapper) then
 		legacy.AbilityCooldown = S.origAbilityCooldown
@@ -1296,47 +1553,16 @@ local function watchMatchEnd()
 	log("auto lock watching GameValues.State (now " .. tostring(state.Value) .. ")")
 end
 
-local function hookStamina()
-	if S.staminaHook then
-		return
-	end
-	local ok, knit = pcall(require, ReplicatedStorage.Packages.Knit.KnitClient)
-	if not ok or type(knit) ~= "table" then
-		return
-	end
-	local svc
-	pcall(function()
-		svc = knit.GetService("StaminaService")
-	end)
-	if type(svc) ~= "table" or type(svc.DecreaseStamina) ~= "table" then
-		return
-	end
-	local remote = svc.DecreaseStamina
-	if type(remote.Fire) ~= "function" then
-		return
-	end
-	local origFire = remote.Fire
-	-- Was Fire an own field, or inherited from the ClientRemoteSignal class via
-	-- __index? Restore must reproduce whichever it was.
-	S.staminaHook = { remote = remote, origFire = origFire, wasOwn = rawget(remote, "Fire") ~= nil }
-	remote.Fire = function(self, ...)
-		if S.alive and CFG.InfiniteStamina then
-			return
-		end
-		return origFire(self, ...)
-	end
-end
-
-local function unhookStamina()
-	local h = S.staminaHook
-	if not h then
-		return
-	end
-	if h.remote and h.origFire then
-		h.remote.Fire = h.wasOwn and h.origFire or nil
-	end
-	S.staminaHook = nil
-end
+-- .34 removed hookStamina/unhookStamina. Stamina is entirely server-owned:
+-- PlayerStats.Stamina is written by the server and replicated down, and
+-- DecreaseStamina is a one-way client->server RemoteEvent (remotes.txt:210,
+-- authority_hints.txt:219). Suppressing every Fire therefore left the SERVER's
+-- stamina pinned at 100 for the whole match while we dribbled, slid and dashed
+-- -- an action/drain ledger that never agrees, and the only server-visible half
+-- of this feature. Letting the drain through costs nothing locally: every gate
+-- that can stop us reads the LOCAL value (0871:447,578,656,674; 1120:50;
+-- 1141:139), and pinStaminaValue already keeps that at 100. Removing the hook
+-- also removes a mutated field on a Knit service table.
 
 -- Kaiser Volley freeze (fixed in .7): an ability module sets
 -- StatesController.States.Ability = true BEFORE it fires AbilityService.Ability,
@@ -1384,12 +1610,49 @@ end
 -- own `task.delay(2, ABC:Clean)` (0614:83), so anything under ~3s can and did
 -- fire during a healthy ability. 5s still ends a real freeze quickly enough to
 -- keep playing, and cannot land inside a working cast.
+-- THE SAE AWAKENING (Shoulder Push) FREEZE, and why .28 could not end it
+-- Every awakening / ultimate in this game is a CUTSCENE skill: the module fires
+-- the remote and then calls AbilityUtils.clientCutsceneSkill (0744:23 for
+-- ShoulderPush). That helper raises TWO flags, not one (2863:939):
+--     CameraController.Cutscene   = true
+--     StatesController.States.Ability = true
+-- and 1138:281 pins WalkSpeed to 0 while EITHER is set -- Camera.Cutscene is its
+-- own term in that condition, and StatesController.Camera IS CameraController
+-- (1138:86). So a watchdog that clears only States.Ability logs "cleared stuck"
+-- and the player stays frozen. That is exactly the pair of lines in blr_hub.log
+-- at 01:52:33 and 01:53:16.
+-- Worse, the cutscene path is re-enterable while NoAbilityCD is on. ShoulderPush
+-- gates on `slotReady(1)` alone (0744:18), which reads the slot deadline
+-- (2863:302); a cutscene skill only calls AbilityCooldown from inside its ABC
+-- cleanup (2863:944), i.e. at the END of the cast, so through the whole cutscene
+-- the deadline is still the 0 we last pinned and the gate is wide open. A second
+-- press re-enters clientCutsceneSkill, whose first act is `ABC:Clean()`
+-- (2863:958) -- that kills the in-flight cast's release handler -- and then
+-- re-raises both flags with a fresh `task.delay(p132, ABC:Clean)`. Every press
+-- restarts the freeze from zero.
+-- Fix, both local writes (rung 3): count the cutscene as an active cast
+-- everywhere, hold every slot shut for its duration so it cannot be re-entered,
+-- and give the watchdog the power to clear Camera.Cutscene as well.
+-- Nothing here shortens the game's own fallback. p132 runs 8s (ShoulderPush) to
+-- 38s (FiveStageVolley), so the cutscene watchdog waits longer than all of them
+-- and is a backstop for an orphaned cutscene only, never a refusal inference
+-- (§5.4b).
 local ABILITY_STUCK_SECONDS = 5
+local CUTSCENE_STUCK_SECONDS = 40 -- > the longest ABC self-clean in the dump (38, 2863:953)
 local CAST_RESOLVE_FLOOR = 1.5 -- 0528:125 take-phase
 
-local function abilityActive()
+local function statesAbility()
 	local states = S.states and S.states.States
 	return type(states) == "table" and states.Ability == true
+end
+
+local function cutsceneActive()
+	local cam = S.states and S.states.Camera -- 1138:86: this is CameraController
+	return type(cam) == "table" and cam.Cutscene == true
+end
+
+local function abilityActive()
+	return statesAbility() or cutsceneActive()
 end
 
 -- Decide what happened to the cast we are holding a slot for.
@@ -1408,6 +1671,9 @@ end
 -- only acceptable one: infer LESS. Orphan recovery is left to the watchdog
 -- below, which waits long enough that no legitimate cast can be inside it.
 local function resolveCast()
+	if awakeningCooldownProtected() then
+		return
+	end
 	local now = os.clock()
 	for field, p in pairs(S.pending) do
 		local age = now - p.at
@@ -1432,14 +1698,51 @@ local function resolveCast()
 end
 
 local function pinAbilitySlots()
+	if awakeningCooldownProtected() then
+		return
+	end
 	local iface = S.iface
 	if type(iface) ~= "table" then
 		return
 	end
-	if abilityActive() then
-		-- Mid-cast. Leave every deadline alone, AbilityUsed included, so the module
-		-- cannot be re-entered and orphan its own "start" handler.
+	if cutsceneActive() then
+		-- A cutscene skill has NOT stamped its slot yet (2863:944 runs in the ABC
+		-- cleanup), so "leave the deadline alone" means leaving our own 0 there and
+		-- the gate open. Shut every slot instead: during a cutscene the character is
+		-- pinned at WalkSpeed 0 (1138:281), so nothing legitimate is castable and
+		-- this takes no capability away.
 		S.abilityTrueAt = S.abilityTrueAt or os.clock()
+		for _, field in pairs(SLOT_FIELD) do
+			iface[field] = tick() + 0.1
+		end
+		return
+	end
+	if abilityActive() then
+		-- Mid-cast. Leave the OTHER slots' deadlines alone, AbilityUsed included, so
+		-- the module cannot be re-entered and orphan its own "start" handler.
+		--
+		-- "Leave alone" is not enough for the slot that is CASTING, and that hole is
+		-- the Sae base C bug. Sae's C off-ball is OffBalance (0757:44 picks it when
+		-- HasBall is false and InAwakening is false). It calls
+		-- `AbilityCooldown("1", 40)` (0750:59) BEFORE it scans for a victim, and our
+		-- wrapper rewrites that 40 to 0.05 -- so the gate re-opens 50ms into a cast
+		-- whose target scan runs for a full 200ms (0750:122, `tick() - u11 >= 0.2`).
+		-- A second press inside that window passes `AbilityOne > tick()` (0757:27)
+		-- and re-enters OffBalance, whose first act is `ABC:Clean()` (0750:37): that
+		-- kills the in-flight scan and the DragBall hookup and restarts the dash from
+		-- the new position. The move then whiffs, which reads exactly as "C does
+		-- nothing" / "the range is broken".
+		-- So renew the deadline for the slot the game itself just put on cooldown.
+		-- Only that slot, and only while it is executing -- the hold is dropped by
+		-- resolveCast the moment the cast completes, so the real 40s is still gone.
+		S.abilityTrueAt = S.abilityTrueAt or os.clock()
+		local now = os.clock()
+		for _, field in pairs(SLOT_FIELD) do
+			local until_ = S.slotHold[field]
+			if until_ and now < until_ then
+				iface[field] = tick() + 0.1
+			end
+		end
 		return
 	end
 	S.abilityTrueAt = nil
@@ -1465,11 +1768,17 @@ local function pinAbilitySlots()
 end
 
 -- Backstop for a cast that was orphaned without a pending record (re-inject
--- mid-cast, a module we never saw call AbilityCooldown). Every cutscene ability
--- also sets Camera.Cutscene, a separate term in the same 1138:281 condition, so
--- clearing Ability here cannot free movement during a cutscene.
+-- mid-cast, a module we never saw call AbilityCooldown). Camera.Cutscene is a
+-- separate term in the same 1138:281 condition, so a cutscene freeze is only
+-- ended by clearing BOTH flags -- clearing Ability alone is the "cleared stuck"
+-- line that appeared while the player was still frozen.
 local function clearStuckAbility()
-	if not abilityActive() then
+	if awakeningCooldownProtected() then
+		S.abilityTrueAt = nil
+		return
+	end
+	local cutscene = cutsceneActive()
+	if not (cutscene or statesAbility()) then
 		S.abilityTrueAt = nil
 		return
 	end
@@ -1477,14 +1786,21 @@ local function clearStuckAbility()
 		S.abilityTrueAt = os.clock()
 		return
 	end
-	if os.clock() - S.abilityTrueAt < ABILITY_STUCK_SECONDS then
+	-- A cutscene is allowed to run as long as its own ABC self-clean (2863:953,
+	-- up to 38s). Only past that is it genuinely orphaned.
+	local limit = cutscene and CUTSCENE_STUCK_SECONDS or ABILITY_STUCK_SECONDS
+	if os.clock() - S.abilityTrueAt < limit then
 		return
 	end
 	S.abilityTrueAt = nil
 	pcall(function()
 		S.states.States.Ability = false
+		if cutscene then
+			S.states.Camera.Cutscene = false
+		end
 	end)
-	log("cleared stuck States.Ability after " .. ABILITY_STUCK_SECONDS .. "s (WalkSpeed was pinned to 0)")
+	log(("cleared stuck %s after %ds (WalkSpeed was pinned to 0)")
+		:format(cutscene and "Camera.Cutscene + States.Ability" or "States.Ability", limit))
 end
 
 -- Tap guard -------------------------------------------------------------
@@ -1675,7 +1991,9 @@ local function hookShootSignal(ctrl)
 		log("BallService.Shoot signal not found - header shaping unavailable")
 		return
 	end
-	S.shootConn = connect(sig, function(ball)
+	S.shootConn = connect(sig, function(ball, power, arc)
+		S.traceShotUntil = os.clock() + 5
+		traceState("shot_signal", { power = power, arc = arc })
 		shapeHeader(ball)
 	end)
 	log("BallService.Shoot signal connected (header shaping)")
@@ -1724,6 +2042,19 @@ local function pinStaminaValue()
 	local stats = LP:FindFirstChild("PlayerStats")
 	local stamina = stats and stats:FindFirstChild("Stamina")
 	if stamina and stamina:IsA("NumberValue") and stamina.Value < 100 then
+		S.staminaBeforeLastPin = stamina.Value
+		-- Emit at most 1 Hz. This ran every frame and cost 2542 dropped records
+		-- in the 13:46 session -- the pin drowned the journal in the exact window
+		-- the kick had to be read from. The lowest value seen since the last
+		-- emit is the one worth keeping; the pin itself still runs every frame.
+		local now = os.clock()
+		S.staminaPinLow = math.min(S.staminaPinLow or math.huge, stamina.Value)
+		S.staminaPinRuns = (S.staminaPinRuns or 0) + 1
+		if now - (S.staminaPinEmit or 0) >= 1 then
+			Trace.emit("stamina_pin", { before = stamina.Value, requested = 100,
+				lowestSinceLast = S.staminaPinLow, runsSinceLast = S.staminaPinRuns })
+			S.staminaPinEmit, S.staminaPinLow, S.staminaPinRuns = now, nil, 0
+		end
 		pcall(function()
 			stamina.Value = 100
 		end)
@@ -1755,6 +2086,14 @@ local function resolveControllers()
 	if type(S.teamService) ~= "table" then
 		log("TeamService missing - auto lock unavailable")
 	end
+	local okAwakening, awakening = pcall(knit.GetController, "AwakeningController")
+	hookAwakening(okAwakening and awakening or nil)
+	local okGoals, goals = pcall(knit.GetService, "GoalService")
+	if okGoals and type(goals) == "table" and type(goals.ScoredGoal) == "table" then
+		connect(goals.ScoredGoal, function(scorer)
+			traceState("goal_confirmed", { localScorer = scorer == LP.Character })
+		end)
+	end
 	watchMatchEnd()
 	local function grab()
 		local ball
@@ -1770,7 +2109,6 @@ local function resolveControllers()
 			if not S.origSlide then
 				wrapBallAction(ball, "Slide", "NoSlideCD")
 			end
-			hookStamina()
 			hookDribbleFire()
 			hookShootSignal(ball)
 			log("BallController wrapped")
@@ -2238,6 +2576,10 @@ local function ensureGui()
 	end
 
 	local toggleButtons = {}
+	-- Forward: the observe-only toggle in Controls binds it, and the body that
+	-- assigns it lives down in Chrome next to panic.
+	local setSuspended
+
 	local function toggle(page, key, text, desc, onChange)
 		local o
 		o = {
@@ -2406,12 +2748,20 @@ local function ensureGui()
 	W.note(controls, "These three raise the rate of a real server call. They are named in the boot log every inject.")
 
 	W.section(controls, "Player")
-	toggle(controls, "InfiniteStamina", "Infinite stamina", "Local pin; the drain remote is suppressed")
+	toggle(controls, "InfiniteStamina", "Infinite stamina", "Local pin only; the drain remote runs untouched")
 	W.statusRow(controls, function()
 		local stats = LP:FindFirstChild("PlayerStats")
 		local stamina = stats and stats:FindFirstChild("Stamina")
 		return "stamina " .. (stamina and string.format("%.0f", stamina.Value) or "?")
 	end)
+
+	W.section(controls, "Diagnostics")
+	toggle(controls, "ObserveOnly", "Observe only (control arm)",
+		"Suspends EVERY feature, keeps the journal. Your toggles are remembered.",
+		function(on)
+			setSuspended(on)
+		end)
+	W.note(controls, "Five kicks landed 176-234s after joining, on two builds. Fly a session with this ON to test whether the hub's features are involved at all.")
 
 	--======================================================================
 	-- Spinner
@@ -2631,11 +2981,63 @@ local function ensureGui()
 		end)
 	end
 
+	-- Observe-only is the CONTROL ARM of the kick investigation, not a feature.
+	-- It suspends every gameplay effect while leaving the journal running, so a
+	-- session can be flown with the hub loaded and provably doing nothing. The
+	-- saved config is untouched: suspension is held in S.suspended and restored
+	-- on OFF, so turning it off does not make the user re-arm eleven toggles.
+	-- The journal's data.cfg reads all-false while suspended, which is exactly
+	-- the evidence a control session has to carry.
+	local FEATURE_KEYS = {
+		"NoDribbleCD", "DribbleCDClaim", "NoSlideCD", "NoAbilityCD", "ShotPower",
+		"HeaderPower", "AbilityPower", "InfiniteStamina", "TapGuard",
+		"VolleyGuard", "CFLocker",
+	}
+	setSuspended = function(on)
+		if on then
+			if S.suspended then
+				return
+			end
+			spinStop("observe-only")
+			local held = {}
+			for _, key in ipairs(FEATURE_KEYS) do
+				held[key] = CFG[key] == true
+				CFG[key] = false
+			end
+			S.suspended = held
+			if held.AbilityPower then
+				applyAbilityBalancing(false)
+			end
+		else
+			local held = S.suspended
+			if not held then
+				return
+			end
+			S.suspended = nil
+			for _, key in ipairs(FEATURE_KEYS) do
+				CFG[key] = held[key] == true
+			end
+			if CFG.AbilityPower then
+				applyAbilityBalancing(true)
+			end
+		end
+		for _, render in pairs(toggleButtons) do
+			pcall(render)
+		end
+		traceState("observe_only", { suspended = on == true })
+		log("ObserveOnly=" .. tostring(on == true) .. " (features "
+			.. (on and "suspended" or "restored") .. ", config untouched)")
+	end
+
 	-- persist=true only when the USER hit panic. destroy() disarms with
 	-- persist=false: an unload must not overwrite the saved toggles with all-OFF,
 	-- or every re-inject comes back blank and autosave looks broken.
 	panic = function(persist)
 		spinStop("panic")
+		-- Drop any held suspension: after a panic the user wants everything OFF,
+		-- and restoring an observe-only session would silently re-arm it.
+		S.suspended = nil
+		CFG.ObserveOnly = false
 		CFG.NoDribbleCD = false
 		CFG.DribbleCDClaim = false
 		CFG.NoSlideCD = false
@@ -2671,7 +3073,6 @@ local function ensureGui()
 		end
 		unhookDribbleFire()
 		unhookAbilityCooldown()
-		unhookStamina()
 		applyAbilityBalancing(false)
 		for _, c in ipairs(S.conns) do
 			pcall(function()
@@ -2710,6 +3111,9 @@ local function ensureGui()
 		if processed then
 			return
 		end
+		if table.find({ "G", "C", "V", "B", "Q", "E", "F", "Space" }, input.KeyCode.Name) then
+			traceState("gameplay_key", { key = input.KeyCode.Name })
+		end
 		if input.KeyCode == Enum.KeyCode.K then
 			destroy()
 			return
@@ -2739,7 +3143,7 @@ local function ensureGui()
 
 	setTab(CFG.Tab)
 	repaintTabs()
-	return panic, destroy
+	return panic, destroy, setSuspended
 end
 
 local function correctExperience()
@@ -2759,7 +3163,7 @@ if game.PlaceId ~= EXPECTED_PLACE then
 		:format(tostring(game.PlaceId), tostring(game.GameId)))
 end
 
-local _, destroy = ensureGui()
+local _, destroy, suspendFeatures = ensureGui()
 resolveControllers()
 -- After the GUI, never before: the profile swap redraws sliders, and a slider
 -- that does not exist yet cannot be redrawn.
@@ -2770,6 +3174,12 @@ watchStyle()
 -- resumed ON has to be applied here or the panel would lie about it.
 if CFG.AbilityPower then
 	applyAbilityBalancing(true)
+end
+
+-- A resumed observe-only session must suspend BEFORE the Heartbeat runs once,
+-- or the control arm leaks a frame of every feature it exists to prove absent.
+if CFG.ObserveOnly and suspendFeatures then
+	suspendFeatures(true)
 end
 
 -- One Heartbeat, connected AFTER the game's. StatesController resets
@@ -2805,6 +3215,11 @@ connect(RunService.Heartbeat, function()
 	-- Panel refresh at ~8 Hz, not per frame: the readouts are status text, and a
 	-- 60 Hz redraw of a dozen labels is cost for nothing (potassium-dev 5.4).
 	local now = os.clock()
+	local traceInterval = S.traceShotUntil and now < S.traceShotUntil and 0.1 or 2
+	if now - (S.lastTrace or 0) >= traceInterval then
+		S.lastTrace = now
+		traceState("snapshot")
+	end
 	if now - lastRefresh >= 0.12 then
 		lastRefresh = now
 		refreshUI()
@@ -2812,6 +3227,8 @@ connect(RunService.Heartbeat, function()
 end)
 
 log("boot build=" .. BUILD_VERSION .. " place=" .. tostring(game.PlaceId))
+log("persistent telemetry=" .. Trace.prefix .. "<segment>.jsonl; local only, gaps counted")
+traceState("boot")
 do
 	-- script-scaffold 3: the resumed state must be impossible to miss.
 	local resumed = {}
