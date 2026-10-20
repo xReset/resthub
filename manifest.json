@@ -1,39 +1,53 @@
 {
     "schema":  1,
-    "minLoader":  3,
-    "release":  "2026-09-02.0324",
-    "revision":  "443dee5882729c59ba2fc1a51bf2eac2e3a2e1a6",
+    "minLoader":  4,
+    "release":  "2026-10-19.1",
+    "revision":  "e0aa6de44c4f4d8b21104ae07c8416ab3fa84f37",
     "files":  {
                   "hub.lua":  {
-                                  "sha256":  "059afa2446dffaaab8692a653b368a88ba39b326beaac080fa39192b1cef6031",
+                                  "sha256":  "bfcec606af659365eee54f5c3fc335a03e962d3eb2f6621bfa0f85305382e5fa",
                                   "localName":  "hub.lua"
                               },
                   "r3st_ui.lua":  {
-                                      "sha256":  "fd15e29c9114dab49a45f36ad5f8db93f1556d4efba84b27d5d38e4973efe8bc",
+                                      "sha256":  "d895e81dc7953fa075d32ceef53822e421257f55fcf0f2c59df3eda4105d08a7",
                                       "localName":  "r3st_ui.lua"
                                   },
                   "anims.lua":  {
-                                    "sha256":  "946de9bb2c9a3438be3675ba5d59a3ebd8e749962e7432a819619b2cb4cc1156",
+                                    "sha256":  "d8917905ea05ed692323e75d477cd2847d7707d6c7e48af8fb42cb06b0214777",
                                     "localName":  "anims.lua"
                                 },
+                  "log.lua":  {
+                                  "sha256":  "55e3b7b153a7d36c7c2be110c189010100ff1a85d45e325cb1d05f34b60258b8",
+                                  "localName":  "log.lua"
+                              },
+                  "games/abd_item_esp.lua":  {
+                                                 "sha256":  "f3322f66a88e548c40b57192364c4877260818dfb0f999acb83cb5f1c7c0af47",
+                                                 "localName":  "abd_item_esp.lua"
+                                             },
                   "telemetry.lua":  {
                                         "sha256":  "14b5d3057196696c4b8055855bc7244d949e4b9a6093bcdf9976c6e24a08bdac",
                                         "localName":  "resthub_telemetry.lua"
                                     },
                   "games/blr_hub.lua":  {
-                                            "sha256":  "f12fae2be321be266bff9532611d030ebef38e5a27a06c98b6b7f059064309d4",
+                                            "sha256":  "7cc24affd543632c54ffdb62f51a715aa46682a6d4c7eed43934897ee1754467",
                                             "localName":  "blr_hub.lua"
                                         },
                   "games/gd2.lua":  {
-                                        "sha256":  "5ea8a268be68031348404ecd7e1537cea6e6a2d0d05574384bf9499a895618ed",
+                                        "sha256":  "204e144fc42321c66858981b4e0e2d654b2a033236d06cb37c7e96c24386bcbe",
                                         "localName":  "gd2.lua"
                                     },
                   "games/dqr_hub.lua":  {
-                                            "sha256":  "673a84c7b8d9745012fe23665a63d00ca84c0bfc29ad6bb8e9b1333c62e89244",
+                                            "sha256":  "11810564e6dcfd8f0b3e16b9e058ba84b738f7072ada5efc4010fd21f9f22eb4",
                                             "localName":  "dqr_hub.lua"
                                         }
               },
     "modules":  [
+                    {
+                        "id":  "bizarre-day-classic",
+                        "gameId":  969567031,
+                        "placeId":  120318126233314,
+                        "path":  "games/abd_item_esp.lua"
+                    },
                     {
                         "id":  "blue-lock-rivals",
                         "gameId":  6325068386,
