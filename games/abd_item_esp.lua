@@ -1,4 +1,4 @@
--- A Bizarre Day : Classic Items v2026-10-19.4 (2026-10-19)
+-- A Bizarre Day : Classic Items v2026-10-20.1 (2026-10-20)
 -- ESP: rungs 1-2. Collection: rung 5, character physics we own; normal contact
 -- pickup needs proximity. Server/nearby players see teleports and accepted pickups.
 -- No remotes, hooks, item reparenting, WalkSpeed/JumpPower changes or console output.
@@ -10,12 +10,14 @@
 -- Re-inject safe: self-teardown; K unload; P stops ESP/collection; Hub owns RightShift.
 -- Player: execute hub.lua, arm Collect all for ONE sweep; confirm inventory/return.
 -- Music: local mixer only; scripts/0057.lua:8-24, 0220.lua:45-50,73-78.
--- Changelog: .4 All dropped-Tool ESP, including both vampire masks (0209.lua:7-30).
+-- Banknote proof: trees/Workspace.txt:70717-70720,71129-71140 (Tool/Handle).
+-- Changelog: 2026-10-20.1 Dedicated saved Banknotes filter and count.
+-- .4 All dropped-Tool ESP, including both vampire masks (0209.lua:7-30).
 -- .3 Saved music toggle, music-only routing and owned unload restore.
 -- .2 All dropped-Tool collection sweep with confirmed pickups and return.
 -- .1 Hub-only arrows/Requiem/fruit ESP, saved filters and distances.
 
-local BUILD_VERSION = "2026-10-19.4"
+local BUILD_VERSION = "2026-10-20.1"
 local EXPECTED_GAME = 969567031
 local EXPECTED_PLACE = 120318126233314
 local GKEY = "__ABD_ITEM_ESP"
@@ -42,7 +44,7 @@ end
 
 local CFG = {
     schema = 1, enabled = true, arrows = true, requiem = true, fruits = true,
-    distances = true, range = 0, collect = false, music = true, masks = true, other = true,
+    distances = true, range = 0, collect = false, music = true, masks = true, other = true, banknotes = true,
 }
 local S = {
     alive = true, build = BUILD_VERSION, embedded = true, cfg = CFG,
@@ -52,6 +54,7 @@ local S = {
 local Shell, layer
 local OTHER_TYPE = { key = "other", color = Color3.fromRGB(150, 220, 255) }
 local TYPES = {
+    ["Banknote"] = { key = "banknotes", color = Color3.fromRGB(110, 235, 145) },
     ["Vampire Mask"] = { key = "masks", color = Color3.fromRGB(255, 150, 90) },
     ["Golden Vampire Mask"] = { key = "masks", color = Color3.fromRGB(255, 220, 100) },
     ["Arrow"] = { key = "arrows", color = Color3.fromRGB(255, 208, 90) },
@@ -83,9 +86,9 @@ local function saveConfig()
 end
 
 local function resumed()
-    return ("enabled=%s arrows=%s requiem=%s fruits=%s distances=%s range=%d collect=%s music=%s"):format(
+    return ("enabled=%s arrows=%s requiem=%s fruits=%s distances=%s range=%d collect=%s music=%s banknotes=%s"):format(
         tostring(CFG.enabled), tostring(CFG.arrows), tostring(CFG.requiem), tostring(CFG.fruits),
-        tostring(CFG.distances), CFG.range, tostring(CFG.collect), tostring(CFG.music))
+        tostring(CFG.distances), CFG.range, tostring(CFG.collect), tostring(CFG.music), tostring(CFG.banknotes))
 end
 
 local function applyConfig()
@@ -326,7 +329,7 @@ end
 
 local function scan()
     local seen = {}
-    local counts = { arrows = 0, requiem = 0, fruits = 0, masks = 0, other = 0 }
+    local counts = { arrows = 0, requiem = 0, fruits = 0, masks = 0, other = 0, banknotes = 0 }
     local function visit(parent)
         for _, tool in ipairs(parent:GetChildren()) do
             local handle, kind = worldItem(tool)
@@ -433,6 +436,7 @@ local function main()
     W.toggle(items, { label = "Requiem Arrows", key = "requiem", set = applyConfig })
     W.toggle(items, { label = "Rokakaka Fruits", key = "fruits", set = applyConfig })
     W.toggle(items, { label = "Vampire Masks (including Golden)", key = "masks", set = applyConfig })
+    W.toggle(items, { label = "Banknotes", key = "banknotes", set = applyConfig })
     W.toggle(items, { label = "All other dropped items", key = "other", set = applyConfig })
     W.section(items, "Collection")
     W.toggle(items, { label = "Collect all (one sweep)", key = "collect", set = applyCollect })
@@ -444,7 +448,7 @@ local function main()
         return ("Arrows: %d | Requiem: %d | Fruits: %d"):format(S.counts.arrows, S.counts.requiem, S.counts.fruits)
     end)
     W.statusRow(items, function() return ("ESP %s | %d labels shown"):format(CFG.enabled and "ON" or "OFF", S.shown) end)
-    W.statusRow(items, function() return ("Masks: %d | Other items: %d"):format(S.counts.masks or 0, S.counts.other or 0) end)
+    W.statusRow(items, function() return ("Masks: %d | Banknotes: %d | Other: %d"):format(S.counts.masks or 0, S.counts.banknotes or 0, S.counts.other or 0) end)
     W.note(items, "All replicated dropped Tools with Handles, including Vampire/Golden Vampire Masks and Requiem Arrows. Held tools and spawn markers are excluded.")
     W.note(items, "Requiem Arrow is in the game catalog but none appeared in this capture. Zero means none currently observed, not that it cannot spawn.")
     local settings = Shell.page("Settings")

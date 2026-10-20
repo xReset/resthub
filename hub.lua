@@ -1,4 +1,6 @@
--- R3ST Hub v2026-10-19.1 (2026-10-19)
+-- R3ST Hub v2026-10-20.2 (2026-10-20)
+-- .2: advertise Banknote ESP on the A Bizarre Day module card.
+-- .1: register the embedded WideOpen motorcycle tuning module.
 -- Rung 2 (client-created UI only). Server sees: nothing; no game state or remotes touched.
 -- Re-inject safe: self-teardown on load; RightShift = show/hide; K = unload.
 -- Changelog:
@@ -109,7 +111,7 @@
 --   the moment the chunk returns, so nothing leaks into a later inject.
 --   New modules build through Kit.moduleShell; legacy host adapters remain
 --   visible as migration debt in tools/check_hub.py.
-local BUILD_VERSION = "2026-10-19.1"
+local BUILD_VERSION = "2026-10-20.2"
 local SHELL_CONTRACT = "1"
 local GKEY = "__R3ST_HUB"
 local HOST_KEY = "__R3ST_HOST"
@@ -315,16 +317,14 @@ end
 
 --==========================================================================
 -- Registry
---   Every entry's placeId is quoted from that script's own source, not guessed.
---   `embed = true` means the module honours the host-mount contract above.
---   `gkey` is the module's getgenv lifecycle key, so the hub can unload it.
---   gameId is the UNIVERSE id and is what makes a row work inside a VIP /
---   private server, where the PlaceId can differ from the public one. Treat it
---   as required for any game the user actually plays; without it the row still
---   gates on PlaceId and will refuse to arm in a private server. Artwork also
---   resolves faster from it.
+--   Identity comes from each module's source: gameId is the universe (VIP-safe),
+--   placeId is the canonical place. embed honours the host contract; gkey owns
+--   teardown. Backends stay in games/<slug>/scripts/, never in this registry.
 --==========================================================================
 local REGISTRY = {
+	{ id = "wideopen", moduleKey = "WideOpen", name = "WideOpen", cat = "Vehicle",
+		placeId = 109959833715820, gameId = 10766812776, file = "wideopen_hub.lua", embed = true,
+		gkey = "__WIDEOPEN_HUB", desc = "Motorcycle power, gearing, handling, wheelie assistance, ECU and rail guard." },
 	{ id = "ghost-driver", moduleKey = "GhostDriver", name = "Ghost Driver", cat = "Vehicle",
 		placeId = 137228775845999, gameId = 10173311467, file = "gd2.lua", embed = true, gkey = "__GD2",
 		desc = "Vehicle tuning, handling, stance, exhaust, audio mixer and ESP." },
@@ -418,7 +418,7 @@ local REGISTRY = {
 		placeId = 286090429, gameId = 111958650, file = "arsenal_esp.lua", embed = true, gkey = "__ARSENAL_ESP",
 		desc = "Player ESP, chams and healthbars." },
 	{ id = "project-slayers-2", moduleKey = "ProjectSlayers2", name = "Project Slayers 2", cat = "RPG", placeId = 136406881576517, gameId = 5595353122, file = "ps2_hub.lua", embed = true, gkey = "__PS2_HUB", desc = "Black Market prediction, quest item ESP, spawn alerts, teleports, free dash and auto block." },
-	{ id = "bizarre-day-classic", moduleKey = "BizarreDayClassic", name = "A Bizarre Day : Classic", cat = "RPG", placeId = 120318126233314, gameId = 969567031, file = "abd_item_esp.lua", embed = true, gkey = "__ABD_ITEM_ESP", desc = "World Arrow, Requiem Arrow and Rokakaka Fruit ESP with saved filters and distances." },
+	{ id = "bizarre-day-classic", moduleKey = "BizarreDayClassic", name = "A Bizarre Day : Classic", cat = "RPG", placeId = 120318126233314, gameId = 969567031, file = "abd_item_esp.lua", embed = true, gkey = "__ABD_ITEM_ESP", desc = "Dropped-item ESP including Banknotes, arrows, fruits and masks; saved filters, music and collection sweep." },
 	{ id = "twisted", moduleKey = "Twisted", name = "Twisted", cat = "Survival",
 		placeId = 14170731342, gameId = 2251388500, file = "twisted_hub.lua", embed = true, gkey = "__TWISTED_HUB",
 		desc = "Tornado and storm ESP with EF ratings, chase vehicle readouts, sounding data and night visibility." },
