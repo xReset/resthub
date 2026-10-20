@@ -1,11 +1,11 @@
 {
     "schema":  1,
     "minLoader":  4,
-    "release":  "2026-10-19.2",
-    "revision":  "a69544b1d082d1b7e5f2f8029c4c9f9ef6cfd3ff",
+    "release":  "2026-10-20.2",
+    "revision":  "bdce9ca0276715b6f3912d34f18f256977674d93",
     "files":  {
                   "hub.lua":  {
-                                  "sha256":  "bfcec606af659365eee54f5c3fc335a03e962d3eb2f6621bfa0f85305382e5fa",
+                                  "sha256":  "c0690573aef974c539bb29f2a1a5e3afa05bf2d5a5ed4b112e5d5753db497cad",
                                   "localName":  "hub.lua"
                               },
                   "r3st_ui.lua":  {
@@ -21,7 +21,7 @@
                                   "localName":  "log.lua"
                               },
                   "games/abd_item_esp.lua":  {
-                                                 "sha256":  "fbb1b98b2e7910256d7fdadf81510c5d0b23d06078902f42c1247e507f3a0f93",
+                                                 "sha256":  "15d63ccaca0ba44c32c903754d3a7e55424de098ccf3dfafb69c46f0e1d4a3ca",
                                                  "localName":  "abd_item_esp.lua"
                                              },
                   "telemetry.lua":  {
