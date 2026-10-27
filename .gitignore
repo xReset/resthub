@@ -12,6 +12,8 @@ secrets/
 .mcp.json
 
 # Local output
+__pycache__/
+*.py[cod]
 *.log
 .DS_Store
 Thumbs.db

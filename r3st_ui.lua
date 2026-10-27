@@ -1,4 +1,11 @@
--- R3ST UI kit v2026-09-23.1
+-- R3ST UI kit v2026-10-26.6-studio
+-- Changelog: 2026-10-26.6-studio Full-size panel motion; deduplicated, cancellable tweens.
+-- Changelog: 2026-10-26.5-studio Promote approved motion and palette to the shared kit.
+-- Changelog: 2026-10-26.5-studio Glide transitions, spring releases, staggered entrances.
+-- Changelog: 2026-10-26.3-studio Deeper violet accent, one step larger type scale.
+-- Changelog: 2026-10-26.2-studio Iris accent, Builder Sans type, softer graphite ladder.
+-- Changelog: 2026-10-26.1-health Skip hidden panels; cache slider paints; status at 4 Hz.
+-- Changelog: 2026-10-25.1 Coherent rounded Frame icons on a 24-unit grid.
 -- The ONE control template every module in hub.lua renders with.
 --
 -- Rung 2 (client-created UI only). Server sees nothing: this file creates
@@ -27,6 +34,18 @@
 --   W.header(parent, { title=, version=, subtitle=, gameId=, placeId=, onInfo= })
 --   W.tabstrip(parent, { names=, get=, set=, width= })
 --   W.footer(parent, { onUnload=, onSettings=, hint= })
+--   W.search(parent, { placeholder=, text=, changed=, size=, position= })
+--   W.chips(parent, { names=, counts=, get=, set=, position= })
+--   W.card(parent, { title=, desc=, active=, activated=, size=, position=, index= })
+--   W.empty(parent, { title=, desc=, size=, position= })
+--   W.badge(parent, { text=, active=, size=, position= })
+--   W.switch(parent, { get=, set=, size=, position= })
+--   W.group(page)                                  -- titleless card
+--   W.row(page, height)                             -- custom content slot
+--   W.keybind(page, { label=, get=, set=, key=, default= })
+--     Optional onCapture/capturing/onCancel delegate capture to an existing controller.
+--   W.number(page, { label=, get=, set=, key=, default=, text=, min=, max=, commit= })
+--     Returns TextBox; commit runs after validation, including invalid input.
 --
 --   `live` and `conns` are the CALLER's tables, so the caller's existing
 --   refresh loop and teardown keep working unchanged. That is what let gd2.lua
@@ -36,7 +55,7 @@
 -- template must never mean rewriting a proven page of controls.
 
 local Kit = {}
-Kit.VERSION = "2026-09-23.1"
+Kit.VERSION = "2026-10-26.6-studio"
 
 -- The version of the module-shell contract this kit implements. hub.lua and
 -- tools/check_hub.py assert on it; a module built against a different one is a
@@ -73,32 +92,46 @@ local TweenService = game:GetService("TweenService")
 -- `line` moved 42 -> 58 for the same reason: at 42 against a 30 card the border
 -- was not defining an edge, so cards had no shape of their own.
 --==========================================================================
+--
+-- STUDIO (2026-10-26.2): one chromatic accent joins the ladder. Pure-white
+-- "on" states made every active control shout at the same volume as text, so
+-- selection, focus and value now share the iris accent and white is left for
+-- type and knobs. The ladder is cool graphite with ~10-value steps.
+--==========================================================================
 Kit.COL = {
-	bg = Color3.fromRGB(9, 9, 11),
-	panel = Color3.fromRGB(20, 20, 24),
-	card = Color3.fromRGB(30, 30, 36),
-	row = Color3.fromRGB(40, 40, 48),
-	rowHover = Color3.fromRGB(52, 52, 62),
-	line = Color3.fromRGB(58, 58, 70),
-	lineSoft = Color3.fromRGB(40, 40, 48),
-	text = Color3.fromRGB(242, 242, 247),
-	dim = Color3.fromRGB(152, 152, 164),
-	faint = Color3.fromRGB(110, 110, 122),
+	bg = Color3.fromRGB(9, 9, 13),
+	panel = Color3.fromRGB(17, 17, 23),
+	card = Color3.fromRGB(26, 26, 35),
+	row = Color3.fromRGB(37, 37, 49),
+	rowHover = Color3.fromRGB(49, 49, 64),
+	line = Color3.fromRGB(50, 50, 66),
+	lineSoft = Color3.fromRGB(36, 36, 48),
+	lineStrong = Color3.fromRGB(86, 88, 112),
+	text = Color3.fromRGB(238, 239, 246),
+	dim = Color3.fromRGB(150, 152, 172),
+	faint = Color3.fromRGB(104, 106, 126),
 	white = Color3.fromRGB(255, 255, 255),
-	good = Color3.fromRGB(72, 205, 57),
-	bad = Color3.fromRGB(255, 120, 120),
-	knobOff = Color3.fromRGB(126, 126, 138),
+	good = Color3.fromRGB(74, 222, 128),
+	bad = Color3.fromRGB(248, 113, 113),
+	warn = Color3.fromRGB(251, 191, 36),
+	knobOff = Color3.fromRGB(120, 122, 142),
+	accent = Color3.fromRGB(84, 66, 196),
+	accentHover = Color3.fromRGB(102, 84, 218),
+	accentSoft = Color3.fromRGB(30, 24, 58),
+	accentText = Color3.fromRGB(168, 152, 250),
 }
 -- Aliases so hub.lua's historic names resolve to the SAME colour instead of a
 -- near-miss of it. Adding names is safe; renaming would break gd2/blr mid-port.
 Kit.COL.raised = Kit.COL.card
 Kit.COL.hover = Kit.COL.row
 Kit.COL.green = Kit.COL.good
-local COL = Kit.COL
+Kit.T = Kit.COL
+Kit.RADIUS = { small = 6, control = 8, card = 12, window = 14, pill = 999 }
+local COL = Kit.T
 
 -- Five sizes, not ten. Screenshot audit found 10/11/12/13/14/15/18/19/22/24 in
 -- use across hub.lua alone; a scale nobody can recite is a scale nobody applies.
-Kit.TYPE = { micro = 10, small = 11, body = 13, head = 15, title = 22 }
+Kit.TYPE = { micro = 11, small = 12, body = 14, head = 16, title = 24 }
 
 -- 4px grid. Every offset in new layout code is one of these.
 Kit.SPACE = { xs = 4, sm = 8, md = 12, lg = 16, xl = 24, xxl = 32 }
@@ -122,15 +155,30 @@ Kit.SPACE = { xs = 4, sm = 8, md = 12, lg = 16, xl = 24, xxl = 32 }
 -- description, every note and status row. Bold is the default here, not the
 -- exception.
 --==========================================================================
+-- Builder Sans is Roblox's own UI face and reads cleaner than Gotham at 11-13px.
+-- Resolved through pcall so an older client without it falls back to Gotham
+-- instead of erroring at load.
+local function font(name, fallback)
+	local ok, f = pcall(function() return Enum.Font[name] end)
+	return ok and f or fallback
+end
+Kit.FONT = {
+	bold = font("BuilderSansBold", Enum.Font.GothamBold),
+	semi = font("BuilderSansMedium", Enum.Font.GothamMedium),
+	body = font("BuilderSans", Enum.Font.Gotham),
+	heavy = font("BuilderSansExtraBold", Enum.Font.GothamBlack),
+	mono = font("RobotoMono", Enum.Font.Code),
+}
 Kit.ROLE = {
-	title   = { size = Kit.TYPE.title, font = Enum.Font.GothamBold },   -- module name
-	heading = { size = Kit.TYPE.head,  font = Enum.Font.GothamBold },   -- card title
-	control = { size = Kit.TYPE.body,  font = Enum.Font.GothamBold },   -- toggle/slider label
-	value   = { size = Kit.TYPE.body,  font = Enum.Font.GothamBold },   -- the number a slider shows
-	body    = { size = Kit.TYPE.body,  font = Enum.Font.GothamMedium }, -- prose
-	caption = { size = Kit.TYPE.small, font = Enum.Font.GothamMedium }, -- desc / note / status
-	micro   = { size = Kit.TYPE.micro, font = Enum.Font.GothamMedium }, -- legal-print only
-	tab     = { size = Kit.TYPE.small, font = Enum.Font.GothamBold },
+	title   = { size = Kit.TYPE.title, font = Kit.FONT.heavy }, -- module name
+	heading = { size = Kit.TYPE.head,  font = Kit.FONT.bold },  -- card title
+	control = { size = Kit.TYPE.body,  font = Kit.FONT.bold },  -- toggle/slider label
+	value   = { size = Kit.TYPE.body,  font = Kit.FONT.bold },  -- the number a slider shows
+	body    = { size = Kit.TYPE.body,  font = Kit.FONT.semi },  -- prose
+	caption = { size = Kit.TYPE.small, font = Kit.FONT.semi },  -- desc / note / status
+	micro   = { size = Kit.TYPE.micro, font = Kit.FONT.semi },  -- legal-print only
+	tab     = { size = Kit.TYPE.small, font = Kit.FONT.bold },
+	mono    = { size = Kit.TYPE.body,  font = Kit.FONT.mono },  -- command input
 }
 
 -- Apply a role to any TextLabel/TextButton after the fact.
@@ -151,104 +199,150 @@ end
 -- contained zero TweenService calls. Everything snapped. That single fact was
 -- most of the "not premium" feeling.
 --
--- Restrained on purpose: opacity, position and scale only, ease-OUT only, and
--- no bounce/elastic/spring anywhere. Overshoot is the vibecoded tell -- real
--- tools decelerate into place and stop. Durations are short enough that daily
--- use never waits on them.
+-- Short Quad curves keep motion continuous without overshoot or a long tail.
+-- Move panels at their final size; never rescale text-heavy UI during a reveal.
+-- The spring/glide names remain compatible aliases for existing module callers.
 --
 -- Kit.reduceMotion = true makes every helper below apply the final value
 -- instantly, so the setting is honoured without a branch at each call site.
 --==========================================================================
-Kit.MOTION = { fast = 0.10, base = 0.14, slow = 0.20 }
+Kit.MOTION = { fast = 0.12, base = 0.20, slow = 0.24, spring = 0.22, exit = 0.14 }
 Kit.reduceMotion = false
 
-local EASE_OUT = Enum.EasingStyle.Quad
-local EASE_DIR = Enum.EasingDirection.Out
+Kit.EASE = {
+	out = { Enum.EasingStyle.Quad, Enum.EasingDirection.Out },
+	spring = { Enum.EasingStyle.Quad, Enum.EasingDirection.Out },
+	["in"] = { Enum.EasingStyle.Quad, Enum.EasingDirection.In },
+	glide = { Enum.EasingStyle.Quad, Enum.EasingDirection.Out },
+}
 
 -- Returns the Tween so a caller can wait on Completed; nil when motion is off.
+-- style: a Kit.EASE name (default "out") or an Enum.EasingStyle.
+local activeMotion = setmetatable({}, { __mode = "k" })
+function Kit.cancelMotion(obj, property)
+	local active = activeMotion[obj]
+	if not active then return end
+	local pending = {}
+	for key, rec in pairs(active) do
+		if not property or key == property then pending[rec] = true end
+	end
+	for rec in pairs(pending) do rec.tween:Cancel() end
+end
 function Kit.tween(obj, props, dur, style)
 	if typeof(obj) ~= "Instance" then return nil end
+	local active = activeMotion[obj] or {}
+	activeMotion[obj] = active
 	if Kit.reduceMotion or dur == 0 then
 		for k, v in pairs(props) do
+			Kit.cancelMotion(obj, k)
 			pcall(function() obj[k] = v end)
 		end
 		return nil
 	end
-	local info = TweenInfo.new(dur or Kit.MOTION.base, style or EASE_OUT, EASE_DIR)
-	local t = TweenService:Create(obj, info, props)
+	local changed, existing = {}, nil
+	for k, v in pairs(props) do
+		local rec = active[k]
+		if rec and rec.goals[k] == v then
+			existing = rec.tween
+		elseif obj[k] ~= v or rec then
+			changed[k] = v
+		end
+	end
+	if not next(changed) then return existing end
+	-- Restart the full requested group if one target changed, not a stranded subset.
+	for k in pairs(props) do Kit.cancelMotion(obj, k) end
+	changed = {}
+	for k, v in pairs(props) do if obj[k] ~= v then changed[k] = v end end
+	if not next(changed) then return nil end
+	local ease = Kit.EASE[style or "out"]
+	local info = typeof(style) == "EnumItem"
+		and TweenInfo.new(dur or Kit.MOTION.base, style, Enum.EasingDirection.Out)
+		or TweenInfo.new(dur or Kit.MOTION.base, (ease or Kit.EASE.out)[1], (ease or Kit.EASE.out)[2])
+	local t = TweenService:Create(obj, info, changed)
+	local rec = { tween = t, goals = changed }
+	for k in pairs(changed) do active[k] = rec end
+	t.Completed:Once(function()
+		for k in pairs(changed) do
+			if active[k] == rec then active[k] = nil end
+		end
+	end)
 	t:Play()
 	return t
 end
 local tween = Kit.tween
 
--- Window/panel open: fade + a small scale lift. 0.96 not 0.8 -- a big scale jump
--- reads as a cartoon, a small one reads as weight.
+-- Panels move as a single surface; text and mounted widgets stay full-sized.
+local panelMotion = setmetatable({}, { __mode = "k" })
 function Kit.appear(frame, scaleObj, done)
-	if Kit.reduceMotion then
-		frame.Visible = true
-		if scaleObj then scaleObj.Scale = scaleObj:GetAttribute("R3ST_TargetScale") or scaleObj.Scale end
-		if done then done() end
-		return
+	local previous = panelMotion[frame]
+	local rec = { base = previous and previous.active and previous.base or frame.Position, active = true }
+	panelMotion[frame] = rec
+	if scaleObj then
+		Kit.cancelMotion(scaleObj, "Scale")
+		scaleObj.Scale = scaleObj:GetAttribute("R3ST_TargetScale") or scaleObj.Scale
 	end
-	local target = scaleObj and (scaleObj:GetAttribute("R3ST_TargetScale") or scaleObj.Scale) or 1
-	frame.Visible = true
-	if scaleObj then scaleObj.Scale = target * 0.96 end
-	-- Only a CanvasGroup can fade a whole panel; fading a plain Frame's
-	-- BackgroundTransparency makes the ground vanish while every child stays
-	-- fully opaque, which looks worse than not fading at all. So: fade when the
-	-- caller gave us something that can, scale-lift always.
-	local t
-	if frame:IsA("CanvasGroup") then
-		frame.GroupTransparency = 1
-		t = tween(frame, { GroupTransparency = 0 }, Kit.MOTION.base)
+	local t = Kit.pageIn(frame, 1, rec.base)
+	local function finish(status)
+		if panelMotion[frame] ~= rec then return end
+		rec.active = false
+		if done and (not status or status == Enum.PlaybackState.Completed) then done() end
 	end
-	local st = scaleObj and tween(scaleObj, { Scale = target }, Kit.MOTION.base) or nil
-	t = t or st
-	if done then
-		if t then t.Completed:Once(done) else done() end
-	end
+	if t then t.Completed:Once(finish) else finish() end
 end
 
 -- Close is faster than open: getting out of the way should never feel slow.
 function Kit.vanish(frame, scaleObj, done)
-	if Kit.reduceMotion then
-		frame.Visible = false
-		if done then done() end
-		return
+	local previous = panelMotion[frame]
+	local rec = { base = previous and previous.active and previous.base or frame.Position, active = true }
+	panelMotion[frame] = rec
+	Kit.cancelMotion(frame)
+	if scaleObj then
+		Kit.cancelMotion(scaleObj, "Scale")
+		scaleObj.Scale = scaleObj:GetAttribute("R3ST_TargetScale") or scaleObj.Scale
 	end
-	local target = scaleObj and (scaleObj:GetAttribute("R3ST_TargetScale") or scaleObj.Scale) or 1
-	local t = scaleObj and tween(scaleObj, { Scale = target * 0.97 }, Kit.MOTION.fast) or nil
-	if frame:IsA("CanvasGroup") then
-		t = tween(frame, { GroupTransparency = 1 }, Kit.MOTION.fast) or t
-	end
-	local function finish()
+	local props = { Position = rec.base + UDim2.fromOffset(0, 6) }
+	if frame:IsA("CanvasGroup") then props.GroupTransparency = 1 end
+	local t = tween(frame, props, Kit.MOTION.exit, "in")
+	local function finish(status)
+		if panelMotion[frame] ~= rec then return end
+		rec.active = false
+		if status and status ~= Enum.PlaybackState.Completed then return end
 		frame.Visible = false
-		if scaleObj then scaleObj.Scale = target end
+		frame.Position = rec.base
 		if done then done() end
 	end
 	if t then t.Completed:Once(finish) else finish() end
 end
 
--- Page switch: crossfade a CanvasGroup-less Frame by walking nothing -- we just
--- swap Visible and fade the incoming page's own transparency proxy. Kept at
--- 90ms because a page switch is navigation, not decoration.
--- Page switch. A CanvasGroup fades as one object, which is the whole reason
--- newPage builds pages as CanvasGroups: the first version looked for a
--- CanvasGroup CHILD, pages were plain Frames, so every page switch silently did
--- nothing at all. If a caller still hands us a Frame, slide it instead of
--- pretending -- a dead animation path is worse than an honest one.
-function Kit.pageIn(frame)
+-- Page transitions keep position and opacity on separate curves. Plain Frames
+-- glide; CanvasGroups also fade as one object, without walking descendants.
+-- Cancel old writers before replaying so rapid navigation cannot drift.
+-- dir: 1 slides up from below, -1 down from above (follow the nav direction).
+local pageMotion = setmetatable({}, { __mode = "k" })
+function Kit.pageIn(frame, dir, origin)
+	Kit.cancelMotion(frame)
+	local previous = pageMotion[frame]
+	local base = origin or (previous and previous.base) or frame.Position
+	if previous then
+		if previous.tween then previous.tween:Cancel() end
+		if previous.fade then previous.fade:Cancel() end
+	end
 	frame.Visible = true
-	if Kit.reduceMotion then return end
-	if frame:IsA("CanvasGroup") then
-		frame.GroupTransparency = 1
-		frame.Position = UDim2.new(frame.Position.X.Scale, frame.Position.X.Offset, 0, 6)
-		tween(frame, { GroupTransparency = 0, Position = UDim2.new(frame.Position.X.Scale, frame.Position.X.Offset, 0, 0) }, 0.12)
+	frame.Position = base
+	if frame:IsA("CanvasGroup") then frame.GroupTransparency = 0 end
+	if Kit.reduceMotion then
+		pageMotion[frame] = { base = base }
 		return
 	end
-	local base = frame.Position
-	frame.Position = UDim2.new(base.X.Scale, base.X.Offset, base.Y.Scale, base.Y.Offset + 6)
-	tween(frame, { Position = base }, 0.12)
+	frame.Position = base + UDim2.fromOffset(0, 10 * (dir or 1))
+	local fade
+	if frame:IsA("CanvasGroup") then
+		frame.GroupTransparency = 1
+		fade = tween(frame, { GroupTransparency = 0 }, Kit.MOTION.base)
+	end
+	local motion = tween(frame, { Position = base }, Kit.MOTION.base, "glide")
+	pageMotion[frame] = { base = base, fade = fade, tween = motion }
+	return motion
 end
 
 local function clamp(v, lo, hi)
@@ -275,31 +369,54 @@ local function attachScale(obj)
 	return s
 end
 
-function Kit.interactive(btn, strokeObj, baseColor)
+function Kit.interactive(btn, strokeObj, baseColor, options)
+	options = options or {}
 	local base = baseColor or btn.BackgroundColor3
 	local hoverCol = Kit.COL.rowHover
 	local down = false
 	local inside = false
-	-- A press must MOVE something. Colour alone is what made every button in the
-	-- product feel like a coloured rectangle: hover tinted, click did nothing the
-	-- eye could catch. 0.97 is a press, not a bounce -- it eases down and eases
-	-- back with no overshoot (hub S9.3: no bounce/elastic/spring, ever).
+	local focused = false
+	-- Colour acknowledges focus; scale acknowledges a physical press. A quick
+	-- sink and a longer spring release keep rapid clicks responsive.
 	local scale = btn:FindFirstChildOfClass("UIScale")
+	local wasDown = false
 	local function paint()
 		local d = Kit.MOTION.fast
+		local resting = options.base and options.base() or base
+		local edge = options.edge and options.edge() or Kit.COL.line
+		local hovered = inside or focused
+		local surface = options.hover and options.hover() or hoverCol
 		if strokeObj then
-			Kit.tween(strokeObj, { Color = (inside or down) and Kit.COL.white or Kit.COL.line }, d)
+			-- An active control keeps its own edge on hover; a resting one lifts.
+			local lifted = (edge == Kit.COL.line) and Kit.COL.lineStrong or edge
+			Kit.tween(strokeObj, { Color = down and Kit.COL.accent
+				or (hovered and lifted or edge) }, d)
 		end
-		Kit.tween(btn, { BackgroundColor3 = down and Kit.COL.line or (inside and hoverCol or base) }, d)
-		if scale then Kit.tween(scale, { Scale = down and 0.97 or 1 }, d) end
+		Kit.tween(btn, { BackgroundColor3 = down and surface
+			or (hovered and surface or resting) }, d)
+		-- Press sinks fast; release springs back past rest and settles.
+		if scale then
+			if down then
+				Kit.tween(scale, { Scale = 0.98 }, 0.08)
+			elseif wasDown then
+				Kit.tween(scale, { Scale = 1 }, Kit.MOTION.spring, "spring")
+			else
+				Kit.tween(scale, { Scale = 1 }, d)
+			end
+		end
+		wasDown = down
 	end
+	btn.SelectionGained:Connect(function() focused = true; paint() end)
+	btn.SelectionLost:Connect(function() focused = false; down = false; paint() end)
 	btn.MouseEnter:Connect(function() inside = true; paint() end)
 	btn.MouseLeave:Connect(function() inside = false; down = false; paint() end)
 	btn.MouseButton1Down:Connect(function()
 		down = true
 		-- Create the UIScale lazily: a button that is never pressed never pays for
 		-- one, and adding it here keeps every existing call site working unchanged.
-		if not scale then scale = attachScale(btn) end
+		if not scale and btn.AbsoluteSize.X <= 240 and btn.AbsoluteSize.Y <= 80 then
+			scale = attachScale(btn)
+		end
 		paint()
 	end)
 	btn.MouseButton1Up:Connect(function() down = false; paint() end)
@@ -315,7 +432,7 @@ function Kit.hoverable(frame, strokeObj, baseColor, hoverColor)
 	local function paint(on)
 		Kit.tween(frame, { BackgroundColor3 = on and hov or base }, Kit.MOTION.fast)
 		if strokeObj then
-			Kit.tween(strokeObj, { Color = on and Kit.COL.white or Kit.COL.line }, Kit.MOTION.fast)
+			Kit.tween(strokeObj, { Color = on and Kit.COL.lineStrong or Kit.COL.line }, Kit.MOTION.fast)
 		end
 	end
 	frame.MouseEnter:Connect(function() paint(true) end)
@@ -323,28 +440,15 @@ function Kit.hoverable(frame, strokeObj, baseColor, hoverColor)
 	return paint
 end
 
--- Card entrance, staggered. A page of cards that all appear on the same frame
--- reads as a screenshot; 25ms apart reads as the page building itself. Capped at
--- 6 steps so a long page never makes the user wait on choreography.
--- SCALE ONLY -- deliberately does NOT touch Position.
---
--- The first version captured frame.Position, offset it by 8px and tweened back
--- after the stagger delay. That is a latent misplacement bug: Kit.page defers a
--- relayout to the next frame and Kit.relayout owns Position, so a reflow landing
--- inside the 0-150ms stagger window would move the card while this tween was
--- still flying it back to a Position captured BEFORE the move. The card would
--- settle at a stale coordinate and nothing would correct it.
---
--- Two writers for one property is the bug; the fix is one writer. Position
--- belongs to relayout, scale belongs to the entrance.
-function Kit.enter(frame, index)
-	if Kit.reduceMotion then return end
-	local scale = attachScale(frame)
-	scale.Scale = 0.97
-	task.delay(math.min((index or 1) - 1, 6) * 0.025, function()
-		if not frame.Parent then return end
-		Kit.tween(scale, { Scale = 1 }, Kit.MOTION.base)
-	end)
+-- Cards share the page entrance: no delayed scale writers or text resampling.
+function Kit.enter(frame, _index)
+	-- Layout-owned cards reveal with their page, not ten independent size changes.
+	-- Keep this compatibility entry point for existing modules and old UI scales.
+	local scale = frame:FindFirstChildOfClass("UIScale")
+	if scale then
+		Kit.cancelMotion(scale, "Scale")
+		scale.Scale = 1
+	end
 end
 
 -- Real text width. W.tabstrip used to size tabs as `14 + #name * 8`, a
@@ -353,7 +457,7 @@ end
 function Kit.textWidth(text, size, font)
 	local ok, v = pcall(function()
 		return game:GetService("TextService"):GetTextSize(
-			text, size, font or Enum.Font.GothamBold, Vector2.new(4000, 100)).X
+			text, size, font or Kit.FONT.bold, Vector2.new(4000, 100)).X
 	end)
 	return ok and v or (#tostring(text) * size * 0.6)
 end
@@ -371,7 +475,7 @@ end
 local new = Kit.new
 
 function Kit.corner(o, r)
-	new("UICorner", { CornerRadius = UDim.new(0, r or 8) }, o)
+	new("UICorner", { CornerRadius = UDim.new(0, r or Kit.RADIUS.control) }, o)
 	return o
 end
 local corner = Kit.corner
@@ -399,6 +503,7 @@ local stroke = Kit.stroke
 -- `size` is the square box in pixels; every part is positioned in SCALE inside
 -- it, so one definition serves a 12px row badge and a 20px header alike.
 --==========================================================================
+local ICON_STROKE = 2.25 -- 1.5px at 16px; every outline and bar shares this weight.
 local function ipart(box, x, y, w, h, rot, opts)
 	opts = opts or {}
 	local f = new("Frame", {
@@ -416,83 +521,195 @@ local function ipart(box, x, y, w, h, rot, opts)
 	if opts.hollow then
 		-- Marked so iconColor recolours the outline instead of the fill.
 		f:SetAttribute("R3ST_IconHollow", true)
-		new("UIStroke", { Color = opts.color or Color3.new(1, 1, 1), Thickness = opts.thickness or 1.5 }, f)
+		new("UIStroke", {
+			Color = opts.color or Color3.new(1, 1, 1),
+			Thickness = box.Size.X.Offset * ICON_STROKE / 24,
+			BorderStrokePosition = Enum.BorderStrokePosition.Center,
+		}, f)
 	end
 	return f
 end
 
--- Each entry draws itself into a unit box. Keep them to bars, rotated bars and
--- circles: anything that needs a real path belongs in an image asset, not here.
-local ICONS = {}
-
-ICONS.dot = function(b, c) ipart(b, .5, .5, .42, .42, 0, { color = c, round = .5 }) end
-
-ICONS.home = function(b, c)
-	ipart(b, .33, .30, .55, .13, -42, { color = c, round = .5 })
-	ipart(b, .67, .30, .55, .13, 42, { color = c, round = .5 })
-	ipart(b, .5, .70, .58, .46, 0, { color = c, hollow = true, round = .12 })
+-- Coordinates describe stroke centres on a 24-unit grid. Capsule endpoints
+-- extend half a stroke beyond each joint, so connected segments cannot crack.
+local function iline(b, c, x1, y1, x2, y2)
+	local dx, dy = x2 - x1, y2 - y1
+	return ipart(b, (x1 + x2) / 48, (y1 + y2) / 48,
+		(math.sqrt(dx * dx + dy * dy) + ICON_STROKE) / 24, ICON_STROKE / 24,
+		math.deg(math.atan2(dy, dx)), { color = c, round = .5 })
 end
 
-ICONS.star = function(b, c) ipart(b, .5, .5, .58, .58, 45, { color = c, hollow = true, round = .12 }) end
-ICONS.starOn = function(b, c) ipart(b, .5, .5, .58, .58, 45, { color = c, round = .12 }) end
+local function ipath(b, c, points, closed)
+	for i = 1, #points - (closed and 0 or 1) do
+		local a, z = points[i], points[i % #points + 1]
+		iline(b, c, a[1], a[2], z[1], z[2])
+	end
+end
+
+local function iring(b, c, x, y, diameter)
+	return ipart(b, x / 24, y / 24, diameter / 24, diameter / 24, 0,
+		{ color = c, hollow = true, round = .5 })
+end
+
+local ICONS = {}
+
+ICONS.dot = function(b, c)
+	ipart(b, .5, .5, 5 / 24, 5 / 24, 0, { color = c, round = .5 })
+end
+
+ICONS.search = function(b, c)
+	iring(b, c, 10.5, 10.5, 13)
+	iline(b, c, 15.2, 15.2, 21, 21)
+end
+
+ICONS.home = function(b, c)
+	ipath(b, c, { { 3, 10 }, { 12, 3 }, { 21, 10 } })
+	ipath(b, c, { { 5, 9 }, { 5, 21 }, { 9.5, 21 }, { 9.5, 14 },
+		{ 14.5, 14 }, { 14.5, 21 }, { 19, 21 }, { 19, 9 } })
+end
+
+local STAR = { { 12, 3 }, { 14.8, 8.8 }, { 21.2, 9.7 }, { 16.6, 14.2 },
+	{ 17.7, 20.7 }, { 12, 17.7 }, { 6.3, 20.7 }, { 7.4, 14.2 },
+	{ 2.8, 9.7 }, { 9.2, 8.8 } }
+
+ICONS.star = function(b, c) ipath(b, c, STAR, true) end
+ICONS.starOn = function(b, c)
+	-- Fill the concave interior with overlapping Frame bands; the same rounded
+	-- outline covers their ends. No background-colour masks or image dependency.
+	for y = 3.25, 20.5, .5 do
+		local hits = {}
+		for i, a in ipairs(STAR) do
+			local z = STAR[i % #STAR + 1]
+			if (a[2] <= y and z[2] > y) or (z[2] <= y and a[2] > y) then
+				hits[#hits + 1] = a[1] + (y - a[2]) * (z[1] - a[1]) / (z[2] - a[2])
+			end
+		end
+		table.sort(hits)
+		for i = 1, #hits - 1, 2 do
+			ipart(b, (hits[i] + hits[i + 1]) / 48, y / 24,
+				(hits[i + 1] - hits[i]) / 24, .6 / 24, 0, { color = c })
+		end
+	end
+	ipath(b, c, STAR, true)
+end
 
 ICONS.clock = function(b, c)
-	ipart(b, .5, .5, .84, .84, 0, { color = c, hollow = true, round = .5 })
-	ipart(b, .5, .36, .09, .30, 0, { color = c, round = .5 })   -- hand, up
-	ipart(b, .63, .55, .30, .09, 0, { color = c, round = .5 })  -- hand, right
+	iring(b, c, 12, 12, 17)
+	ipath(b, c, { { 12, 7 }, { 12, 12 }, { 15.5, 14 } })
 end
 
 ICONS.terminal = function(b, c)
-	ipart(b, .5, .5, .92, .78, 0, { color = c, hollow = true, round = .12 })
-	ipart(b, .36, .40, .26, .10, 45, { color = c, round = .5 })
-	ipart(b, .36, .58, .26, .10, -45, { color = c, round = .5 })
-	ipart(b, .64, .66, .26, .10, 0, { color = c, round = .5 })
+	ipart(b, .5, .5, 18 / 24, 16 / 24, 0,
+		{ color = c, hollow = true, round = .125 })
+	ipath(b, c, { { 7, 9 }, { 10, 12 }, { 7, 15 } })
+	iline(b, c, 13.5, 15, 17, 15)
 end
 
--- Three bars at different heights: motion, which is what Anims is.
+-- A continuous waveform reads as movement even at the smallest row size.
 ICONS.anims = function(b, c)
-	ipart(b, .22, .5, .16, .50, 0, { color = c, round = .5 })
-	ipart(b, .5, .5, .16, .88, 0, { color = c, round = .5 })
-	ipart(b, .78, .5, .16, .64, 0, { color = c, round = .5 })
+	ipath(b, c, { { 3, 12 }, { 6, 12 }, { 9, 4 }, { 13, 20 },
+		{ 17, 8 }, { 19, 12 }, { 21, 12 } })
 end
 
 ICONS.gear = function(b, c)
-	ipart(b, .5, .5, .62, .62, 0, { color = c, hollow = true, round = .5 })
-	ipart(b, .5, .06, .20, .18, 0, { color = c, round = .3 })
-	ipart(b, .5, .94, .20, .18, 0, { color = c, round = .3 })
-	ipart(b, .06, .5, .18, .20, 0, { color = c, round = .3 })
-	ipart(b, .94, .5, .18, .20, 0, { color = c, round = .3 })
+	local teeth = {}
+	for i = 0, 5 do
+		local a = math.rad(i * 60)
+		for _, p in ipairs({ { 7, -3.5 }, { 7, -1.7 }, { 9.5, -1.7 },
+			{ 9.5, 1.7 }, { 7, 1.7 }, { 7, 3.5 } }) do
+			teeth[#teeth + 1] = { 12 + p[1] * math.cos(a) - p[2] * math.sin(a),
+				12 + p[1] * math.sin(a) + p[2] * math.cos(a) }
+		end
+	end
+	ipath(b, c, teeth, true)
+	iring(b, c, 12, 12, 6)
 end
 
 ICONS.info = function(b, c)
-	ipart(b, .5, .5, .92, .92, 0, { color = c, hollow = true, round = .5 })
-	ipart(b, .5, .28, .13, .13, 0, { color = c, round = .5 })
-	ipart(b, .5, .62, .13, .38, 0, { color = c, round = .5 })
+	iring(b, c, 12, 12, 17)
+	ipart(b, .5, 8 / 24, ICON_STROKE / 24, ICON_STROKE / 24, 0,
+		{ color = c, round = .5 })
+	iline(b, c, 12, 11.5, 12, 16.5)
 end
 
--- A right chevron, not a triangle: two bars need no clipping trick and read the
--- same at 12px.
 ICONS.play = function(b, c)
-	ipart(b, .44, .32, .52, .13, 48, { color = c, round = .5 })
-	ipart(b, .44, .68, .52, .13, -48, { color = c, round = .5 })
+	ipath(b, c, { { 7, 4 }, { 20, 12 }, { 7, 20 } }, true)
 end
 
-ICONS.dash = function(b, c) ipart(b, .5, .5, .62, .12, 0, { color = c, round = .5 }) end
+ICONS.menu = function(b, c)
+	for _, y in ipairs({ 6, 12, 18 }) do iline(b, c, 4, y, 20, y) end
+end
+
+ICONS.dash = function(b, c) iline(b, c, 5, 12, 19, 12) end
 ICONS.minus = ICONS.dash
 
 ICONS.plus = function(b, c)
-	ipart(b, .5, .5, .62, .12, 0, { color = c, round = .5 })
-	ipart(b, .5, .5, .12, .62, 0, { color = c, round = .5 })
+	iline(b, c, 5, 12, 19, 12)
+	iline(b, c, 12, 5, 12, 19)
 end
 
 ICONS.close = function(b, c)
-	ipart(b, .5, .5, .74, .12, 45, { color = c, round = .5 })
-	ipart(b, .5, .5, .74, .12, -45, { color = c, round = .5 })
+	iline(b, c, 6, 6, 18, 18)
+	iline(b, c, 6, 18, 18, 6)
 end
 
 ICONS.check = function(b, c)
-	ipart(b, .32, .64, .34, .12, 45, { color = c, round = .5 })
-	ipart(b, .60, .48, .70, .12, -45, { color = c, round = .5 })
+	ipath(b, c, { { 4, 12 }, { 9, 17 }, { 20, 6 } })
+end
+
+ICONS.chevron = function(b, c)
+	ipath(b, c, { { 9, 5 }, { 16, 12 }, { 9, 19 } })
+end
+
+ICONS.grid = function(b, c)
+	for _, p in ipairs({ { 7.5, 7.5 }, { 16.5, 7.5 }, { 7.5, 16.5 }, { 16.5, 16.5 } }) do
+		ipart(b, p[1] / 24, p[2] / 24, 6.5 / 24, 6.5 / 24, 0,
+			{ color = c, hollow = true, round = .25 })
+	end
+end
+
+ICONS.shield = function(b, c)
+	ipath(b, c, { { 12, 3 }, { 20, 6 }, { 20, 11 }, { 17.5, 17 }, { 12, 21 },
+		{ 6.5, 17 }, { 4, 11 }, { 4, 6 } }, true)
+end
+
+ICONS.bolt = function(b, c)
+	ipath(b, c, { { 13.5, 3 }, { 5.5, 13.5 }, { 12, 13.5 }, { 10.5, 21 },
+		{ 18.5, 10.5 }, { 12, 10.5 } }, true)
+end
+
+ICONS.refresh = function(b, c)
+	local pts = {}
+	for i = 0, 10 do
+		local a = math.rad(-60 + i * 27)
+		pts[#pts + 1] = { 12 + 7.5 * math.cos(a), 12 + 7.5 * math.sin(a) }
+	end
+	ipath(b, c, pts)
+	-- Arrowhead on the arc's open end (-60 degrees = 15.75, 5.5).
+	iline(b, c, 15.75, 5.5, 15.25, 1.5)
+	iline(b, c, 15.75, 5.5, 19.75, 6)
+end
+
+ICONS.keyboard = function(b, c)
+	ipart(b, .5, .5, 20 / 24, 13 / 24, 0, { color = c, hollow = true, round = .2 })
+	for _, x in ipairs({ 7, 10.3, 13.7, 17 }) do
+		ipart(b, x / 24, 10 / 24, ICON_STROKE / 24, ICON_STROKE / 24, 0,
+			{ color = c, round = .5 })
+	end
+	iline(b, c, 8.5, 14.5, 15.5, 14.5)
+end
+
+ICONS.eye = function(b, c)
+	local top, bottom = {}, {}
+	for i = 0, 8 do
+		local x = 3 + i * 18 / 8
+		local y = 5.5 * math.sin(math.pi * i / 8)
+		top[#top + 1] = { x, 12 - y }
+		bottom[#bottom + 1] = { x, 12 + y }
+	end
+	ipath(b, c, top)
+	ipath(b, c, bottom)
+	iring(b, c, 12, 12, 5.5)
 end
 
 function Kit.icon(parent, name, o)
@@ -550,7 +767,7 @@ function Kit.label(parent, text, size, col, x, y, w, h, align)
 		BackgroundTransparency = 1,
 		Position = UDim2.fromOffset(x, y),
 		Size = UDim2.fromOffset(w, h),
-		Font = Enum.Font.GothamMedium,
+		Font = Kit.FONT.semi,
 		TextSize = size,
 		TextColor3 = col or COL.text,
 		Text = text,
@@ -771,7 +988,8 @@ function Kit.resizeGrip(root, o)
 	local dragging, startPos, startSize = false, nil, nil
 	local conns = {}
 	conns[#conns + 1] = grip.InputBegan:Connect(function(i)
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType ==
+			Enum.UserInputType.Touch then
 			dragging = true
 			startPos = i.Position
 			startSize = Vector2.new(root.Size.X.Offset, root.Size.Y.Offset)
@@ -779,7 +997,8 @@ function Kit.resizeGrip(root, o)
 	end)
 	conns[#conns + 1] = UserInputService.InputChanged:Connect(function(i)
 		if not dragging then return end
-		if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~= Enum.UserInputType.Touch then return end
+		if i.UserInputType ~= Enum.UserInputType.MouseMovement and i.UserInputType ~=
+			Enum.UserInputType.Touch then return end
 		local d = i.Position - startPos
 		local w = startSize.X + d.X
 		local h = startSize.Y + d.Y
@@ -796,7 +1015,8 @@ function Kit.resizeGrip(root, o)
 	end)
 	conns[#conns + 1] = UserInputService.InputEnded:Connect(function(i)
 		if not dragging then return end
-		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+		if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType ==
+			Enum.UserInputType.Touch then
 			dragging = false
 			if o.onCommit then pcall(o.onCommit, root.Size.X.Offset, root.Size.Y.Offset) end
 		end
@@ -835,7 +1055,7 @@ local function stampControl(obj, kind, key, bound)
 end
 Kit.stampControl = stampControl
 
-local CARD_PAD = 12
+local CARD_PAD = Kit.SPACE.md
 local CARD_TOP = 34 -- title band inside a card
 local GUTTER = 14
 
@@ -929,6 +1149,16 @@ function Kit.height(page)
 	return h
 end
 
+-- Rebuild catalog contents without replacing its scrolling/input surface.
+function Kit.clearPage(page)
+	local rec = pageRec(page)
+	local position = page.CanvasPosition
+	for _, child in ipairs(page:GetChildren()) do child:Destroy() end
+	rec.cols = newCols(rec.width, rec.fixedCols or columnsFor(rec.width))
+	rec.cards, rec.card = {}, nil
+	return position
+end
+
 -- Shortest column wins the next card.
 local function shortestCol(rec)
 	local best = rec.cols[1]
@@ -1017,11 +1247,31 @@ function Kit.section(page, title)
 		Position = UDim2.fromOffset(col.x, col.y),
 		Size = UDim2.fromOffset(col.w, CARD_TOP + CARD_PAD),
 	}, page)
-	corner(frame, 10)
+	corner(frame, Kit.RADIUS.card)
 	local frameStroke = stroke(frame, COL.line)
+	-- Top-lit surface: a 6% falloff gives the card a plane of its own without
+	-- an image shadow. Multiplies BackgroundColor3, so callers may still recolour.
+	new("UIGradient", {
+		Rotation = 90,
+		Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(236, 236, 240)),
+	}, frame)
 	local t = label(frame, title, Kit.ROLE.heading.size, COL.text, CARD_PAD, 8, 0, 22)
 	t.Size = UDim2.new(1, -CARD_PAD * 2, 0, 22)
 	t.Font = Kit.ROLE.heading.font
+	if title ~= "" then
+		-- Accent tick: a child of the title, so W.group destroying the title takes
+		-- the tick with it and no caller needs to know it exists.
+		new("UIPadding", { PaddingLeft = UDim.new(0, 11) }, t)
+		local tick = new("Frame", {
+			Name = "R3ST_Tick",
+			BackgroundColor3 = COL.accent,
+			BorderSizePixel = 0,
+			AnchorPoint = Vector2.new(0, 0.5),
+			Position = UDim2.new(0, -11, 0.5, 0),
+			Size = UDim2.fromOffset(3, 14),
+		}, t)
+		corner(tick, 2)
+	end
 	-- Cards animate IN (staggered), but they do not hover. A card contains
 	-- buttons and toggles, and MouseLeave fires the moment the pointer crosses
 	-- onto one of them -- so a hover tint here flickers on every control the user
@@ -1040,6 +1290,18 @@ end
 --==========================================================================
 -- bind(): widgets wired to the CALLER's live/conns tables
 --==========================================================================
+-- VISIBILITY BEGIN
+function Kit.isVisible(object)
+	if not object or not object.Parent then return false end
+	while object do
+		if object:IsA("GuiObject") and not object.Visible then return false end
+		if object:IsA("LayerCollector") and not object.Enabled then return false end
+		object = object.Parent
+	end
+	return true
+end
+-- VISIBILITY END
+
 function Kit.bind(host)
 	host = host or {}
 	local live = host.live or {}
@@ -1069,7 +1331,9 @@ function Kit.bind(host)
 			return game:GetService("RunService").RenderStepped:Connect(function(dt)
 				acc += dt
 				if acc < 1 / W.liveHz then return end
-				acc = 0
+				acc %= 1 / W.liveHz
+				-- One cheap ancestor check per panel, not one getter per hidden widget.
+				if host.isVisible and not host.isVisible() then return end
 				for i = 1, #live do
 					local fn = live[i]
 					if type(fn) == "function" then pcall(fn) end
@@ -1144,12 +1408,14 @@ function Kit.bind(host)
 
 	-- one shared drag owner for every slider on the page
 	addConn(UserInputService.InputChanged:Connect(function(i)
-		if drag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+		if drag and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType ==
+			Enum.UserInputType.Touch) then
 			drag.setFromX(i.Position.X)
 		end
 	end))
 	addConn(UserInputService.InputEnded:Connect(function(i)
-		if drag and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch) then
+		if drag and (i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType ==
+			Enum.UserInputType.Touch) then
 			local d = drag
 			drag = nil
 			if d.commit then
@@ -1173,11 +1439,157 @@ function Kit.bind(host)
 	end
 
 	-- Template toggle: label left, pill switch hard right.
+	function W.row(page, height)
+		return rowBox(page, height)
+	end
+
+	function W.group(page)
+		Kit.section(page, "")
+		local card = currentCard(page)
+		card.title:Destroy()
+		card.y = CARD_PAD
+		grow(card, 0)
+		return card.frame
+	end
+
+	local keyCapture
+	-- Compact keyboard binding; callers may retain their own capture dispatch.
+	function W.keybind(page, o)
+		local get, set = wire(o, false)
+		local box = o.row or rowBox(page, 34)
+		local name = label(box, o.label or "", Kit.TYPE.body, COL.text, 0, 0, 0, 34)
+		name.Size = UDim2.new(1, -124, 0, 34)
+		Kit.role(name, "control")
+		local chip = new("TextButton", {
+			Text = "", AutoButtonColor = false, BorderSizePixel = 0,
+			BackgroundColor3 = COL.row, TextColor3 = COL.text,
+			AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0),
+			Size = UDim2.fromOffset(112, 28),
+		}, box)
+		Kit.role(chip, "value")
+		corner(chip, Kit.RADIUS.control)
+		local edge = stroke(chip)
+		local last
+		local function redraw()
+			local active = o.capturing and o.capturing() or keyCapture == box
+			local value = get and get()
+			chip.Text = active and "..." or (value and value.Name or "—")
+			chip.Size = UDim2.fromOffset(clamp(#chip.Text * 8 + 24, 40, 112), 28)
+			if active ~= last then
+				tween(edge, { Color = active and COL.accent or COL.line }, Kit.MOTION.fast)
+				tween(chip, { TextColor3 = active and COL.accentText or COL.text }, Kit.MOTION.fast)
+				last = active
+			end
+		end
+		Kit.interactive(chip, edge, COL.row, {
+			edge = function() return last and COL.accent or COL.line end,
+		})
+		chip.Activated:Connect(function()
+			if o.onCapture then
+				guard("ui.keybind.capture", o.onCapture)
+			else
+				keyCapture = box
+			end
+			redraw()
+		end)
+		local inputConn
+		local function cancelCapture()
+			if keyCapture == box then keyCapture = nil end
+			if o.capturing and o.capturing() and o.onCancel then
+				guard("ui.keybind.cancel", o.onCancel)
+			end
+			if box.Parent then redraw() end
+		end
+		local hasBlur, blurConn = pcall(function()
+			return UserInputService.WindowFocusReleased:Connect(cancelCapture)
+		end)
+		if hasBlur then addConn(blurConn) end
+		if not o.onCapture then
+			inputConn = UserInputService.InputBegan:Connect(function(input)
+				if keyCapture ~= box or not box.Parent then return end
+				local kc = input.KeyCode
+				if kc == Enum.KeyCode.Unknown then return end
+				keyCapture = nil
+				if kc ~= Enum.KeyCode.Escape then
+					local clear = kc == Enum.KeyCode.Backspace or kc == Enum.KeyCode.Delete
+					local value = kc
+					if clear then value = false end
+					guard("ui.keybind", set, value)
+				end
+				redraw()
+			end)
+			addConn(inputConn)
+		end
+		box.Destroying:Connect(function()
+			cancelCapture()
+			if hasBlur then blurConn:Disconnect() end
+			if inputConn then inputConn:Disconnect() end
+		end)
+		addLive(function() if box.Parent then redraw() end end)
+		stampControl(box, "keybind", o.key, type(set or o.onCapture) == "function")
+		o.redraw = redraw
+		redraw()
+		return chip, box
+	end
+
+	-- Numeric row: validate once on blur, preserving the last valid value.
+	function W.number(page, o)
+		local get, set = wire(o, tonumber(o.text) or 0)
+		local box = rowBox(page, 34)
+		local name = label(box, o.label or "", Kit.TYPE.body, COL.text, 0, 0, 0, 34)
+		name.Size = UDim2.new(1, -108, 0, 34)
+		Kit.role(name, "control")
+		local input = new("TextBox", {
+			Text = tostring(get and get() or o.text or o.default or 0),
+			ClearTextOnFocus = false, BackgroundColor3 = COL.row,
+			TextColor3 = COL.text, BorderSizePixel = 0,
+			TextXAlignment = Enum.TextXAlignment.Right,
+			AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, 0, 0.5, 0),
+			Size = UDim2.fromOffset(96, 28),
+		}, box)
+		new("UIPadding", { PaddingLeft = UDim.new(0, Kit.SPACE.sm),
+			PaddingRight = UDim.new(0, Kit.SPACE.sm) }, input)
+		Kit.role(input, "value")
+		corner(input, Kit.RADIUS.control)
+		local edge = stroke(input)
+		local focused, hovering, previous = false, false, input.Text
+		local function paint()
+			tween(edge, { Color = focused and COL.accent
+				or (hovering and COL.lineStrong or COL.line) }, Kit.MOTION.fast)
+			tween(input, { BackgroundColor3 = (focused or hovering) and COL.rowHover
+				or COL.row }, Kit.MOTION.fast)
+		end
+		input.MouseEnter:Connect(function() hovering = true; paint() end)
+		input.MouseLeave:Connect(function() hovering = false; paint() end)
+		input.Focused:Connect(function()
+			previous, focused = input.Text, true
+			paint()
+		end)
+		input.FocusLost:Connect(function()
+			focused = false
+			local n = tonumber(input.Text)
+			if n and n == n then
+				if o.min then n = math.max(o.min, n) end
+				if o.max then n = math.min(o.max, n) end
+				input.Text = tostring(n)
+				guard("ui.number", set, n)
+			else
+				input.Text = get and tostring(get()) or previous
+			end
+			if o.commit then guard("ui.number.commit", o.commit) end
+			previous = input.Text
+			paint()
+		end)
+		stampControl(input, "number", o.key, type(set) == "function")
+		return input, box
+	end
+
 	function W.toggle(page, o)
 		local get, set = wire(o, false)
 		local h = o.desc and 44 or 34
 		local box = rowBox(page, h)
-		local name = label(box, o.label, Kit.ROLE.control.size, COL.text, 0, o.desc and 2 or 0, 0, o.desc and 18 or h)
+		local name = label(box, o.label, Kit.ROLE.control.size, COL.text, 0, o.desc and 2 or 0, 0,
+			o.desc and 18 or h)
 		name.Font = Kit.ROLE.control.font
 		name.Size = UDim2.new(1, -60, 0, o.desc and 18 or h)
 		if o.desc then
@@ -1201,7 +1613,7 @@ function Kit.bind(host)
 			stateLabel = label(box, "", 11, COL.dim, 0, 0, 34, h, Enum.TextXAlignment.Right)
 			stateLabel.AnchorPoint = Vector2.new(1, 0)
 			stateLabel.Position = UDim2.new(1, -56, 0, 0)
-			stateLabel.Font = Enum.Font.GothamBold
+			stateLabel.Font = Kit.FONT.bold
 		end
 		local knob = new("Frame", {
 			BackgroundColor3 = COL.knobOff,
@@ -1225,12 +1637,11 @@ function Kit.bind(host)
 				stateLabel.Text = on and "ON" or "OFF"
 				stateLabel.TextColor3 = on and COL.text or COL.dim
 			end
-			tween(knob, {
-				Position = UDim2.new(0, on and 25 or 3, 0.5, 0),
-				BackgroundColor3 = on and COL.white or COL.knobOff,
-			}, d)
-			tween(track, { BackgroundColor3 = on and Color3.fromRGB(70, 72, 78) or COL.row }, d)
-			tween(st, { Color = on and COL.white or COL.line }, d)
+			tween(knob, { Position = UDim2.new(0, on and 25 or 3, 0.5, 0) },
+				d == 0 and 0 or Kit.MOTION.spring, "spring")
+			tween(knob, { BackgroundColor3 = on and COL.white or COL.knobOff }, d)
+			tween(track, { BackgroundColor3 = on and COL.accent or COL.row }, d)
+			tween(st, { Color = on and COL.accent or COL.line }, d)
 			tween(name, { TextColor3 = on and COL.text or COL.dim }, d)
 			-- Commit the paint cache only after every property write succeeds. GUI
 			-- signal threads can be capability-restricted; caching before a failed
@@ -1252,7 +1663,9 @@ function Kit.bind(host)
 			-- State changes here; painting belongs to the caller's safe live loop.
 			-- Touching CoreGui from this signal thread can lack Plugin capability.
 			guard("ui.toggle." .. tostring(o.label), function()
-				set(not get())
+				local on = lastOn
+				if not o.fromDisplay then on = get() end
+				set(not on)
 			end)
 		end)
 		redraw()
@@ -1273,7 +1686,8 @@ function Kit.bind(host)
 		local name = label(box, o.label, Kit.ROLE.control.size, COL.text, 0, 0, 0, 18)
 		name.Font = Kit.ROLE.control.font
 		name.Size = UDim2.new(1, -130, 0, 18)
-		local val = label(box, "", Kit.ROLE.value.size, COL.white, 0, 0, 130, 18, Enum.TextXAlignment.Right)
+		local val = label(box, "", Kit.ROLE.value.size, COL.accentText, 0, 0, 130, 18,
+			Enum.TextXAlignment.Right)
 		val.AnchorPoint = Vector2.new(1, 0)
 		val.Position = UDim2.new(1, 0, 0, 0)
 		val.Font = Kit.ROLE.value.font
@@ -1285,16 +1699,19 @@ function Kit.bind(host)
 			Size = UDim2.new(1, 0, 0, 6),
 		}, box)
 		corner(track, 3)
-		local fill = new("Frame", { BackgroundColor3 = COL.white, BorderSizePixel = 0, Size = UDim2.fromScale(0, 1) }, track)
+		local fill = new("Frame", { BackgroundColor3 = COL.accent, BorderSizePixel = 0, Size =
+			UDim2.fromScale(0, 1) }, track)
 		corner(fill, 3)
 		local knob = new("Frame", {
 			BackgroundColor3 = COL.white,
 			BorderSizePixel = 0,
 			AnchorPoint = Vector2.new(0.5, 0.5),
 			Position = UDim2.new(0, 0, 0.5, 0),
-			Size = UDim2.fromOffset(12, 12),
+			Size = UDim2.fromOffset(14, 14),
+			ZIndex = 3,
 		}, track)
-		corner(knob, 6)
+		new("UICorner", { CornerRadius = UDim.new(0.5, 0) }, knob)
+		new("UIStroke", { Color = COL.accent, Thickness = 2 }, knob)
 		local mark
 		if o.stock then
 			mark = new("Frame", {
@@ -1319,18 +1736,39 @@ function Kit.bind(host)
 		local function frac(v)
 			return clamp((v - o.min) / math.max(o.max - o.min, 1e-6), 0, 1)
 		end
+		local lastValue, lastStock, lastHeld
 		local function redraw()
+			-- The knob swells while held, so a drag has a visible owner.
+			local held = drag == o
+			if held ~= lastHeld then
+				tween(knob, { Size = UDim2.fromOffset(held and 18 or 14, held and 18 or 14) },
+					lastHeld == nil and 0 or Kit.MOTION.base, "spring")
+				lastHeld = held
+			end
 			local v = get()
-			local f = frac(v)
-			fill.Size = UDim2.fromScale(f, 1)
-			knob.Position = UDim2.new(f, 0, 0.5, 0)
-			val.Text = o.fmt and o.fmt(v) or tostring(v)
-			if mark then mark.Position = UDim2.new(frac(o.stock()), 0, 0.5, 0) end
-			if liveLbl and o.live then liveLbl.Text = o.live(v) or "" end
+			if v ~= lastValue then
+				local f = frac(v)
+				fill.Size = UDim2.fromScale(f, 1)
+				knob.Position = UDim2.new(f, 0, 0.5, 0)
+				val.Text = o.fmt and o.fmt(v) or tostring(v)
+				lastValue = v
+			end
+			if mark then
+				local stock = o.stock()
+				if stock ~= lastStock then
+					mark.Position = UDim2.new(frac(stock), 0, 0.5, 0)
+					lastStock = stock
+				end
+			end
+			if liveLbl and o.live then
+				local text = o.live(v) or ""
+				if liveLbl.Text ~= text then liveLbl.Text = text end
+			end
 		end
 		o.redraw = redraw
 		o.setFromX = function(px)
-			local f = clamp((px - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0, 1)
+			local f = clamp((px - track.AbsolutePosition.X) / math.max(track.AbsoluteSize.X, 1), 0,
+				1)
 			local v = o.min + f * (o.max - o.min)
 			if o.step then
 				v = math.floor(v / o.step + 0.5) * o.step
@@ -1339,7 +1777,8 @@ function Kit.bind(host)
 			redraw()
 		end
 		local function grab(i)
-			if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then
+			if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType ==
+				Enum.UserInputType.Touch then
 				drag = o
 				o.setFromX(i.Position.X)
 			end
@@ -1360,7 +1799,7 @@ function Kit.bind(host)
 		return box
 	end
 
-	function W.button(page, text, desc, fn, wide)
+	function W.button(page, text, desc, fn, wide, interaction)
 		local box = rowBox(page, desc and 48 or 32)
 		local b = new("TextButton", {
 			BackgroundColor3 = COL.row,
@@ -1372,11 +1811,12 @@ function Kit.bind(host)
 			Text = text,
 			AutoButtonColor = false,
 		}, box)
-		corner(b, 7)
+		corner(b, Kit.RADIUS.control)
 		local s = stroke(b, COL.line)
 		-- Hover, and a real PRESSED state. Every button in the product had hover
 		-- only, so nothing on screen ever acknowledged the click itself.
-		Kit.interactive(b, s)
+		local repaint = Kit.interactive(b, s, nil, interaction)
+		if interaction then addLive(function() if box.Parent then repaint() end end) end
 		b.MouseButton1Click:Connect(function() guard("ui.button." .. tostring(text), fn) end)
 		stampControl(box, "button", nil, type(fn) == "function")
 		if desc then
@@ -1406,10 +1846,178 @@ function Kit.bind(host)
 		l.TextYAlignment = Enum.TextYAlignment.Top
 		grow(card, 30)
 		stampControl(l, "status", nil, type(getText) == "function")
+		local nextRead = 0
 		addLive(function()
-			if l.Parent and page.Visible then l.Text = getText() or "" end
+			if not l.Parent or not page.Visible or os.clock() < nextRead then return end
+			nextRead = os.clock() + 0.25
+			local text = getText() or ""
+			if l.Text ~= text then l.Text = text end
 		end)
 		return l
+	end
+
+	-- Parent-based primitives also work outside the automatic section grid.
+	function W.search(parent, o)
+		o = o or {}
+		local box = new("TextBox", {
+			Text = o.text or "", PlaceholderText = o.placeholder or "Search...",
+			ClearTextOnFocus = false, BackgroundColor3 = COL.row,
+			TextColor3 = COL.text, PlaceholderColor3 = COL.dim, BorderSizePixel = 0,
+			TextXAlignment = Enum.TextXAlignment.Left,
+			Size = UDim2.new(1, -40, 1, 0),
+			Position = UDim2.fromOffset(36, 0),
+		}, parent)
+		local field = new("Frame", {
+			BackgroundColor3 = COL.row, BorderSizePixel = 0,
+			Size = o.size or UDim2.new(1, 0, 0, Kit.SPACE.xxl),
+			Position = o.position or UDim2.new(),
+		}, parent)
+		box.Parent = field
+		box.BackgroundTransparency = 1
+		Kit.icon(field, "search", { size = 16, color = COL.dim,
+			pos = UDim2.new(0, 12, 0.5, 0), anchor = Vector2.new(0, 0.5) })
+		Kit.role(box, "body")
+		corner(field, Kit.RADIUS.control)
+		local edge = stroke(field)
+		new("UIPadding", { PaddingLeft = UDim.new(0, 0),
+			PaddingRight = UDim.new(0, Kit.SPACE.md) }, box)
+		box:GetPropertyChangedSignal("Visible"):Connect(function()
+			field.Visible = box.Visible
+		end)
+		local focused, hovering = false, false
+		local glass = field:FindFirstChild("R3ST_Icon")
+		local function paint()
+			tween(edge, { Color = focused and COL.accent
+				or (hovering and COL.lineStrong or COL.line) }, Kit.MOTION.fast)
+			tween(field, { BackgroundColor3 = (focused or hovering) and COL.rowHover
+				or COL.row }, Kit.MOTION.fast)
+			if glass then Kit.iconColor(glass, focused and COL.accentText or COL.dim) end
+		end
+		box.MouseEnter:Connect(function() hovering = true; paint() end)
+		box.MouseLeave:Connect(function() hovering = false; paint() end)
+		box.Focused:Connect(function() focused = true; paint() end)
+		box.FocusLost:Connect(function() focused = false; paint() end)
+		if o.changed then
+			box:GetPropertyChangedSignal("Text"):Connect(function()
+				guard("ui.search", o.changed, box.Text)
+			end)
+		end
+		stampControl(box, "search", nil, type(o.changed) == "function")
+		return box, field
+	end
+
+	function W.badge(parent, o)
+		o = o or {}
+		local badge = new("TextLabel", {
+			Text = o.text or "", BackgroundColor3 = o.active and COL.accent or COL.row,
+			TextColor3 = o.active and COL.white or COL.text, BorderSizePixel = 0,
+			Size = o.size or UDim2.fromOffset(72, Kit.SPACE.xl),
+			Position = o.position or UDim2.new(),
+		}, parent)
+		Kit.role(badge, "tab")
+		corner(badge, Kit.RADIUS.pill)
+		return badge
+	end
+
+	function W.card(parent, o)
+		o = o or {}
+		local card = new("TextButton", {
+			Text = "", AutoButtonColor = false, BorderSizePixel = 0,
+			BackgroundColor3 = o.active and COL.accentSoft or COL.card,
+			Size = o.size or UDim2.new(1, 0, 0, 80),
+			Position = o.position or UDim2.new(),
+		}, parent)
+		corner(card, Kit.RADIUS.card)
+		local edge = stroke(card, o.active and COL.accent or COL.line)
+		local title = label(card, o.title or "", Kit.TYPE.body, COL.text,
+			Kit.SPACE.lg, Kit.SPACE.md, 0, 22)
+		title.Size = UDim2.new(1, -128, 0, 22)
+		title.TextTruncate = Enum.TextTruncate.AtEnd
+		Kit.role(title, "control")
+		local desc = label(card, o.desc or "", Kit.TYPE.small, COL.dim,
+			Kit.SPACE.lg, 38, 0, 18)
+		desc.Size = UDim2.new(1, -128, 0, 18)
+		desc.TextTruncate = Enum.TextTruncate.AtEnd
+		Kit.role(desc, "caption")
+		local action = W.badge(card, { text = o.active and "Selected" or "Apply",
+			active = o.active,
+			position = UDim2.new(1, -96, 0.5, -12) })
+		card.MouseEnter:Connect(function()
+			if not o.active then
+				tween(action, { BackgroundColor3 = COL.line }, Kit.MOTION.fast)
+			end
+		end)
+		card.MouseLeave:Connect(function()
+			if not o.active then
+				tween(action, { BackgroundColor3 = COL.row }, Kit.MOTION.fast)
+			end
+		end)
+		Kit.interactive(card, edge, card.BackgroundColor3, {
+			edge = function() return o.active and COL.accent or COL.line end,
+		})
+		if o.activated then
+			card.Activated:Connect(function() guard("ui.card", o.activated) end)
+		end
+		stampControl(card, "button", nil, type(o.activated) == "function")
+		Kit.enter(card, o.index)
+		return card
+	end
+
+	function W.empty(parent, o)
+		o = o or {}
+		local frame = new("Frame", { BackgroundColor3 = COL.card, BorderSizePixel = 0,
+			Size = o.size or UDim2.new(1, -16, 0, 88),
+			Position = o.position or UDim2.fromOffset(8, 8) }, parent)
+		corner(frame, Kit.RADIUS.card)
+		stroke(frame, COL.lineSoft)
+		local title = label(frame, o.title or "Nothing here", Kit.TYPE.body,
+			COL.text, Kit.SPACE.lg, Kit.SPACE.lg, 0, 24)
+		title.Size = UDim2.new(1, -32, 0, 24)
+		Kit.role(title, "control")
+		local desc = label(frame, o.desc or "", Kit.TYPE.small,
+			COL.dim, Kit.SPACE.lg, 44, 0, 28)
+		desc.Size = UDim2.new(1, -32, 0, 28)
+		desc.TextWrapped = true
+		Kit.role(desc, "caption")
+		return frame
+	end
+
+	function W.switch(parent, o)
+		local button = new("TextButton", { Text = "", AutoButtonColor = false,
+			BackgroundColor3 = COL.row, BorderSizePixel = 0,
+			Size = o.size or UDim2.fromOffset(112, 32),
+			Position = o.position or UDim2.new() }, parent)
+		corner(button, Kit.RADIUS.control)
+		Kit.interactive(button, stroke(button))
+		local caption = label(button, "", Kit.TYPE.small, COL.text, 10, 0, 44, 32)
+		Kit.role(caption, "control")
+		local track = new("Frame", { Size = UDim2.fromOffset(36, 20),
+			Position = UDim2.new(1, -44, 0.5, -10), BorderSizePixel = 0 }, button)
+		corner(track, Kit.RADIUS.pill)
+		local knob = new("Frame", { Size = UDim2.fromOffset(14, 14),
+			BackgroundColor3 = COL.white, BorderSizePixel = 0 }, track)
+		corner(knob, Kit.RADIUS.pill)
+		local last
+		local function paint()
+			if not button.Parent then return end
+			local on = o.get() and true or false
+			if on == last then return end
+			local duration = last == nil and 0 or Kit.MOTION.fast
+			last = on
+			caption.Text = on and "ON" or "OFF"
+			tween(track, { BackgroundColor3 = on and COL.accent or COL.line }, duration)
+			tween(caption, { TextColor3 = on and COL.text or COL.dim }, duration)
+			tween(knob, { Position = UDim2.fromOffset(on and 19 or 3, 3) },
+				duration == 0 and 0 or Kit.MOTION.spring, "spring")
+		end
+		button.Activated:Connect(function()
+			guard("ui.switch", o.set, not o.get())
+			paint()
+		end)
+		addLive(paint)
+		paint()
+		stampControl(button, "toggle", nil, type(o.set) == "function")
+		return button
 	end
 
 	--======================================================================
@@ -1431,13 +2039,15 @@ function Kit.bind(host)
 			Size = UDim2.fromOffset(64, 64),
 			ScaleType = Enum.ScaleType.Crop,
 		}, h)
-		corner(icon, 10)
+		corner(icon, Kit.RADIUS.card)
+		stroke(icon, COL.line)
 		if o.gameId then
 			icon.Image = "rbxthumb://type=GameIcon&id=" .. tostring(o.gameId) .. "&w=150&h=150"
 		end
 		if o.placeId then
 			task.spawn(function()
-				local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService, o.placeId)
+				local ok, info = pcall(MarketplaceService.GetProductInfo, MarketplaceService,
+					o.placeId)
 				if ok and type(info) == "table" and tonumber(info.IconImageAssetId)
 					and tonumber(info.IconImageAssetId) > 0 and icon.Parent then
 					icon.Image = "rbxassetid://" .. tostring(info.IconImageAssetId)
@@ -1466,7 +2076,7 @@ function Kit.bind(host)
 				Text = "",
 				AutoButtonColor = false,
 			}, h)
-			corner(info, 8)
+			corner(info, Kit.RADIUS.control)
 			local s = stroke(info, COL.line)
 			Kit.icon(info, "info", { size = 14, color = COL.dim,
 				pos = UDim2.new(0, 14, 0.5, 0), anchor = Vector2.new(0, 0.5) })
@@ -1499,15 +2109,16 @@ function Kit.bind(host)
 			for name, rec in pairs(btns) do
 				local on = (name == cur)
 				tween(rec.b, {
-					BackgroundColor3 = on and COL.white or COL.card,
-					TextColor3 = on and COL.bg or COL.dim,
+					BackgroundColor3 = on and COL.accent or COL.card,
+					TextColor3 = on and COL.white or COL.dim,
 				}, d)
-				tween(rec.s, { Color = on and COL.white or COL.line }, d)
+				tween(rec.s, { Color = on and COL.accent or COL.line }, d)
 			end
 		end
 		for _, name in ipairs(o.names) do
 			-- Measured, not guessed: `14 + #name * 8` clipped any wide tab name.
-			local w = math.max(72, math.ceil(Kit.textWidth(name, 11)) + 22)
+			local text = name .. (o.counts and ("  " .. tostring(o.counts[name] or 0)) or "")
+			local w = math.max(72, math.ceil(Kit.textWidth(text, Kit.TYPE.small)) + 22)
 			local b = new("TextButton", {
 				BackgroundColor3 = COL.card,
 				BorderSizePixel = 0,
@@ -1516,14 +2127,19 @@ function Kit.bind(host)
 				Font = Kit.ROLE.tab.font,
 				TextSize = Kit.ROLE.tab.size,
 				TextColor3 = COL.dim,
-				Text = name,
+				Text = text,
 				AutoButtonColor = false,
 			}, strip)
-			corner(b, 7)
+			corner(b, Kit.RADIUS.control)
 			local s = stroke(b, COL.line)
 			btns[name] = { b = b, s = s }
+			Kit.interactive(b, s, COL.card, {
+				base = function() return o.get() == name and COL.accent or COL.card end,
+				hover = function() return o.get() == name and COL.accentHover or COL.rowHover end,
+				edge = function() return o.get() == name and COL.accent or COL.line end,
+			})
 			stampControl(b, "tab", nil, type(o.set) == "function")
-			b.MouseButton1Click:Connect(function()
+			b.Activated:Connect(function()
 				o.set(name)
 				paint()
 			end)
@@ -1532,6 +2148,9 @@ function Kit.bind(host)
 		paint()
 		return strip, paint
 	end
+
+	W.chips = W.tabstrip
+	W.segmented = W.tabstrip
 
 	-- Footer: the two controls the template puts at the bottom of every module.
 	function W.footer(parent, o)
@@ -1542,7 +2161,8 @@ function Kit.bind(host)
 			Position = UDim2.new(0, 0, 1, 0),
 			Size = UDim2.new(1, 0, 0, 44),
 		}, parent)
-		new("Frame", { BackgroundColor3 = COL.line, BorderSizePixel = 0, Size = UDim2.new(1, 0, 0, 1) }, f)
+		new("Frame", { BackgroundColor3 = COL.lineSoft, BorderSizePixel = 0, Size = UDim2.new(1, 0, 0,
+			1) }, f)
 		-- Drawn icon + text, never a glyph: "☐  Unload Script" and "⚙  UI Settings"
 		-- were tofu boxes on the user's machine, in the file that bans them.
 		local function chip(iconName, text, anchorRight, width, fn)
@@ -1558,7 +2178,7 @@ function Kit.bind(host)
 				Text = "",
 				AutoButtonColor = false,
 			}, f)
-			corner(b, 8)
+			corner(b, Kit.RADIUS.control)
 			local s = stroke(b, COL.line)
 			Kit.icon(b, iconName, { size = 13, color = COL.dim,
 				pos = UDim2.new(0, 12, 0.5, 0), anchor = Vector2.new(0, 0.5) })
@@ -1571,7 +2191,12 @@ function Kit.bind(host)
 			return b
 		end
 		local unload, settings
-		if o.onUnload then unload = chip("close", "Unload script", false, 170, o.onUnload) end
+		if o.onUnload then
+			unload = chip("close", "Unload script", false, 170, o.onUnload)
+			-- Destructive action gets the one warm colour, on its icon only.
+			local x = unload:FindFirstChild("R3ST_Icon")
+			if x then Kit.iconColor(x, COL.bad) end
+		end
 		if o.onSettings then settings = chip("gear", "UI settings", true, 150, o.onSettings) end
 		-- Standalone only: embedded, the hub owns reload on its own page strip and a
 		-- second control for one action is the bug this contract exists to stop.
@@ -1685,7 +2310,7 @@ function Kit.moduleShell(o)
 			ResetOnSpawn = false,
 			IgnoreGuiInset = true,
 			ZIndexBehavior = Enum.ZIndexBehavior.Global,
-			DisplayOrder = 2147483647,
+			DisplayOrder = o.displayOrder or 2147483647,
 		}, core)
 		pcall(sethiddenproperty, screen, "OnTopOfCoreBlur", true)
 		root = new("Frame", {
@@ -1698,7 +2323,7 @@ function Kit.moduleShell(o)
 			Active = true,
 			Visible = true,
 		}, screen)
-		corner(root, 12)
+		corner(root, Kit.RADIUS.window)
 		stroke(root, COL.line)
 	end
 	S.screen, S.root = screen, root
@@ -1723,20 +2348,23 @@ function Kit.moduleShell(o)
 
 	local W = Kit.bind({
 		live = o.live, conns = S.conns, guard = o.guard,
+		isVisible = function() return Kit.isVisible(root) end,
 		cfg = o.cfg, save = o.save, saveDelay = o.saveDelay,
 	})
 	S.W = W
 
-	W.header(inner, {
-		title = o.title or o.id,
-		version = o.version,
-		subtitle = o.subtitle,
-		gameId = o.gameId,
-		placeId = o.placeId,
-		onInfo = o.onInfo,
-	})
-
-	local HEADER_H, FOOTER_H = 84, 52
+	local compact = H.hosted and o.compactHosted
+	if not compact then
+		W.header(inner, {
+			title = o.title or o.id,
+			version = o.version,
+			subtitle = o.subtitle,
+			gameId = o.gameId,
+			placeId = o.placeId,
+			onInfo = o.onInfo,
+		})
+	end
+	local HEADER_H, FOOTER_H = compact and 0 or 84, compact and 0 or 52
 	local top = HEADER_H
 	if o.tabs and #o.tabs > 0 then
 		currentTab = o.tabs[1]
@@ -1771,7 +2399,7 @@ function Kit.moduleShell(o)
 			BorderSizePixel = 0,
 			Size = UDim2.fromScale(1, 1),
 			ScrollBarThickness = 3,
-			ScrollBarImageColor3 = COL.line,
+			ScrollBarImageColor3 = COL.lineStrong,
 			CanvasSize = UDim2.new(),
 			-- A ScrollingFrame defaults to Active = false, and then it never
 			-- captures the wheel or a drag -- the canvas is the right height, the
@@ -1793,10 +2421,11 @@ function Kit.moduleShell(o)
 
 	function S.show(name)
 		if not pages[name] then return false end
+		local changed = currentTab ~= name
 		currentTab = name
 		for n, p in pairs(pages) do
 			if n == name then
-				Kit.pageIn(p)
+				if changed then Kit.pageIn(p) else p.Visible = true end
 			else
 				p.Visible = false
 			end
@@ -1810,35 +2439,41 @@ function Kit.moduleShell(o)
 	-- strip already draws one and a second control for one action is exactly the
 	-- drift this contract exists to stop; standalone, there is no hub strip, so
 	-- the shell draws it. Neither branch is the module's decision.
-	local _, unload, settings, reload = W.footer(inner, {
-		onUnload = o.onUnload,
-		onSettings = o.onSettings,
-		onReload = (not H.hosted) and o.onReload or nil,
-		hint = o.hint or (H.hosted
-			and "The hub owns the window and the hide key"
-			or "RightShift hides this panel"),
-	})
-	S.unloadBtn, S.settingsBtn, S.reloadBtn = unload, settings, reload
+	if not compact then
+		local _, unload, settings, reload = W.footer(inner, {
+			onUnload = o.onUnload,
+			onSettings = o.onSettings,
+			onReload = (not H.hosted) and o.onReload or nil,
+			hint = o.hint or (H.hosted
+				and "The hub owns the window and the hide key"
+				or "RightShift hides this panel"),
+		})
+		S.unloadBtn, S.settingsBtn, S.reloadBtn = unload, settings, reload
+	end
 
 	-- ---- standalone-only chrome ----------------------------------------
 	if not H.hosted then
 		-- Drag by the header band.
-		local dragging, dragStart, startPos
+		local dragging, dragStart, startPos, touch
 		S.conns[#S.conns + 1] = root.InputBegan:Connect(function(i)
-			if i.UserInputType ~= Enum.UserInputType.MouseButton1 then return end
+			if i.UserInputType ~= Enum.UserInputType.MouseButton1
+				and i.UserInputType ~= Enum.UserInputType.Touch then return end
 			if i.Position.Y - root.AbsolutePosition.Y > 76 then return end
 			dragging, dragStart, startPos = true, i.Position, root.Position
+			touch = i.UserInputType == Enum.UserInputType.Touch and i or nil
 		end)
 		S.conns[#S.conns + 1] = UserInputService.InputChanged:Connect(function(i)
-			if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
+			if dragging and ((touch and i == touch) or (not touch
+				and i.UserInputType == Enum.UserInputType.MouseMovement)) then
 				local d = i.Position - dragStart
 				root.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X,
 					startPos.Y.Scale, startPos.Y.Offset + d.Y)
 			end
 		end)
 		S.conns[#S.conns + 1] = UserInputService.InputEnded:Connect(function(i)
-			if dragging and i.UserInputType == Enum.UserInputType.MouseButton1 then
-				dragging = false
+			if dragging and ((touch and i == touch) or (not touch
+				and i.UserInputType == Enum.UserInputType.MouseButton1)) then
+				dragging, touch = false, nil
 				if o.onMove then pcall(o.onMove, root.Position.X.Offset, root.Position.Y.Offset) end
 			end
 		end)

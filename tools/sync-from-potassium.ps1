@@ -14,6 +14,10 @@ $Copies = [ordered]@{
     "games\blue-lock-rivals\scripts\blr_hub.lua" = "games\blr_hub.lua"
     "games\ghost-driver\scripts\gd2.lua" = "games\gd2.lua"
     "games\dungeon-quest-reborn\scripts\dqr_hub.lua" = "games\dqr_hub.lua"
+    "games\wideopen\scripts\wideopen_hub.lua" = "games\wideopen_hub.lua"
+    "games\clover-rpg\scripts\clover_hub.lua" = "games\clover_hub.lua"
+    "games\bike-universe\scripts\bike_universe_hub.lua" = "games\bike_universe_hub.lua"
+    "games\backseat-rally\scripts\backseat_rally_hub.lua" = "games\backseat_rally_hub.lua"
 }
 foreach ($pair in $Copies.GetEnumerator()) {
     $from = Join-Path $Source $pair.Key
@@ -36,6 +40,10 @@ $LocalNames = [ordered]@{
     "games/blr_hub.lua" = "blr_hub.lua"
     "games/gd2.lua" = "gd2.lua"
     "games/dqr_hub.lua" = "dqr_hub.lua"
+    "games/wideopen_hub.lua" = "wideopen_hub.lua"
+    "games/clover_hub.lua" = "clover_hub.lua"
+    "games/bike_universe_hub.lua" = "bike_universe_hub.lua"
+    "games/backseat_rally_hub.lua" = "backseat_rally_hub.lua"
 }
 foreach ($path in $LocalNames.Keys) {
     $native = Join-Path $Root ($path -replace '/', '\')
@@ -44,7 +52,7 @@ foreach ($path in $LocalNames.Keys) {
 }
 $Manifest = [ordered]@{
     schema = 1
-    minLoader = 4
+    minLoader = 5
     release = $Release
     revision = $Revision
     files = $Files
@@ -52,7 +60,11 @@ $Manifest = [ordered]@{
         [ordered]@{ id = "bizarre-day-classic"; gameId = 969567031; placeId = 120318126233314; path = "games/abd_item_esp.lua" },
         [ordered]@{ id = "blue-lock-rivals"; gameId = 6325068386; placeId = 18668065416; path = "games/blr_hub.lua" },
         [ordered]@{ id = "ghost-driver"; gameId = 10173311467; placeId = 137228775845999; path = "games/gd2.lua" },
-        [ordered]@{ id = "dungeon-quest-reborn"; gameId = 9931749389; placeId = 77649408247578; path = "games/dqr_hub.lua" }
+        [ordered]@{ id = "dungeon-quest-reborn"; gameId = 9931749389; placeId = 77649408247578; path = "games/dqr_hub.lua" },
+        [ordered]@{ id = "wideopen"; gameId = 10766812776; placeId = 109959833715820; path = "games/wideopen_hub.lua" },
+        [ordered]@{ id = "clover-rpg"; gameId = 3164482049; placeId = 8248288152; path = "games/clover_hub.lua" },
+        [ordered]@{ id = "bike-universe"; gameId = 10768284407; placeId = 98628861455414; path = "games/bike_universe_hub.lua" },
+        [ordered]@{ id = "backseat-rally"; gameId = 10769543742; placeId = 94278659624110; path = "games/backseat_rally_hub.lua" }
     )
 }
 $json = $Manifest | ConvertTo-Json -Depth 8

@@ -1,117 +1,33 @@
--- R3ST Hub v2026-10-20.2 (2026-10-20)
--- .2: advertise Banknote ESP on the A Bizarre Day module card.
--- .1: register the embedded WideOpen motorcycle tuning module.
--- Rung 2 (client-created UI only). Server sees: nothing; no game state or remotes touched.
--- Re-inject safe: self-teardown on load; RightShift = show/hide; K = unload.
+-- R3ST Hub v2026-10-26.13-public (2026-10-26)
+-- Client UI shell. Re-inject safe; RightShift show/hide; K unload.
 -- Changelog:
---   2026-10-19.1 Register A Bizarre Day : Classic world arrow and fruit ESP.
---   2026-09-23.1 Register Project Slayers 2 (Black Market, quest ESP, auto block).
---   .52 Register Twisted (storm ESP, chase readouts, sounding data, fullbright).
---   .51 Auto-start Admin is a real loaded setting with a Settings toggle, and
---      it leaves an already-ready core alone instead of restarting it.
---   .50 Admin auto-starts on inject, so an automatic rejoin brings the ] bar
---      back with everything else. Critical Strike stays click-to-launch.
---   .48 Register Illegal Soccer.
---   .47 An explicit reload runs the chunk it just read, not the resident.
---   .46 Responsive shell, focused Home, live themes and precise settings input.
---   .44 Give transition game pages a contextual reload while they migrate.
---   .43 Add contextual Admin reload; destroy resident handle before disk load.
---   .41 Publish shell contract + inspect(), stamp host/reload controls, and stop
---      inflating every host to GD2 dimensions.
---   .27 Universe-first identity, append-only reload verdicts, kit-drawn icons.
---      Historical investigation details remain in git and the hub skill.
---   .24 Add the embedded Azure Latch awareness module.
---   .23 Publish the kit-drawn Dungeon Quest Reborn module; detected Walkspeed is disabled.
---   .22 Add the local embedded Volleyball Legends module.
---   .20 Shared palette and motion, persisted resize and ID-keyed favorites;
---      cached artwork, compacted connections, live About status and search.
---   .19 Send report. A friend running the public loadstring had no way to get
---      their logs to us, so every outside bug report was "it doesn't work".
---      About -> Send report posts the build stamps, place/universe and the tail
---      of the hub + module logs to the receiver (LXC104, Tailscale Funnel) that
---      had been live and empty for a month. Consent only: a button, no timer,
---      and the line next to it says exactly what is sent. Also exposed as
---      __R3ST_HUB.report(who, note) so a module can offer the same button.
---      Read what arrives with: bash tools/pull_friend_logs.sh
---   .18 preserve any embedded controller that exposes detach/mount, allowing
---      Ghost Driver and Anims to remain active while their panels alternate.
---   .17 treat scripts/anims.lua and internal/admin_core.lua as the canonical
---      general-tool backends. Admin launch now waits for core readiness and
---      reports the actual backend build instead of claiming deferred success.
---   .16 handle RightShift before the gameProcessed gate so games that consume
---      Shift cannot block the Hub show/hide bind.
---   .15 Anims is a persistent controller, not the active game module. Route
---      changes and GD2 reloads detach only its panel; explicit Anims OFF owns
---      restore. Returning to Anims remounts the existing controller.
---   .14 remove the redundant Universal browser and unrelated tools; Admin and
---      Anims remain the general section. Matching modules always open on inject.
---      Hub surfaces now use one black instead of competing near-black layers.
---   .13 agent reload API on getgenv().__R3ST_HUB. An agent has a live Luau
---      channel through the Potassium MCP server but had no way to make the
---      client pick up a file it had just deployed, so every iteration ended in
---      "re-inject and paste the log". Now:
---        getgenv().__R3ST_HUB.reload()        remount whatever is mounted
---        getgenv().__R3ST_HUB.reload("blr")   ...by id, file or display name
---        getgenv().__R3ST_HUB.reload("hub")   reload hub.lua itself, in place
---        getgenv().__R3ST_HUB.status()        mounted target + live build stamps
---      Every call returns a string AND writes logs/r3st_reload.log, because
---      read_console came back empty on a plain print in live testing
---      (potassium-mcp S2). Reloading the hub compiles the replacement BEFORE
---      tearing the current one down: a hub that unloads itself and then fails
---      to load its successor strands the user mid-match with no UI. Targets are
---      only the modules that already have a host page, so the API inherits the
---      S2 identity gate instead of re-implementing it -- there is no target
---      string that loads another game's module. `mount` now returns ok, err so
---      a failed remount reports as failed instead of as done.
---   .12 identity matches on the UNIVERSE first (game.GameId), then the place.
---      A VIP / private server is the same experience on a different PlaceId, so
---      a PlaceId-only gate refused to arm in exactly the servers the user plays
---      in. Entries without a gameId still gate on PlaceId; the boot log now
---      prints the universe id of any unmatched place so the row can be fixed.
---   .11 ONE control template for every module. scripts/r3st_ui.lua is the shared
---      widget kit -- header, tab strip, two-column card grid, pill toggle, track
---      slider, footer -- and the hub hands it to each module on the host contract
---      as __R3ST_HOST.ui, so a module never loads its own copy when embedded.
---      A module that cannot find it still resolves it from disk and still runs
---      standalone. Different games keep different controls; they no longer keep
---      different looks.
---   .10 six more modules honour the host contract and render in the hub:
---      Evade, Dungeon Quest Reborn, Cold War, Rivals, Operation One, Arsenal.
---      Registry gains Rivals, Arsenal and DQR, and an optional `placeIds` list
---      for a game whose lobby and level are separate places.
---   .9 module paths resolve through ../scripts (the Explorer tab) first. Potassium
---      roots its file API at workspace\, so a bare loadfile read the WORKSPACE:
---      Ghost Driver reported "missing" while a stale v.9 anims.lua loaded and
---      opened its own window outside the hub. Settings lost the per-game
---      autoload/autosave pair -- one Autosave and one "open this place's module
---      on inject", both global.
---   .8 host-mount contract (getgenv().__R3ST_HOST): the module for THIS place
---      gets its own sidebar tab and renders inside the hub instead of opening a
---      second shell. Favorites / Recent / Universal / About are real pages built
---      from live state, not template cards. Registry grew to every game whose
---      PlaceId is proven in its own source. Fixed the nil forward reference on
---      `C` in setLaunchToast that made every failed launch throw instead of
---      showing the reason.
---   .7 featured cards + list rows fully clickable; launch toast + file log on failure
---   .6 registry lists every module; launch still PlaceId-gated
---   .5 Blue Lock Rivals registry + strict PlaceId isolation; module autoload policy
---   .4 fix game artwork with supported thumbnail size and Marketplace icon fallback
---   .3 replace fabricated game dashboard with the complete Ghost Driver module; Roblox game thumbnail
---   .2 R3ST branding, Games navigation, blur backdrop, stronger type, settings/config foundation
---   .1 initial reference-matched interactive template
---
+-- 2026-10-26.13-public Keep private report destinations out of public source.
+-- 2026-10-26.12-quests Ship Clover profession trials, hymn solver and quest map assistance.
+-- 2026-10-26.11-studio Short full-size motion; no row scaling or per-frame minimize reflow.
+-- 2026-10-26.10-studio Port approved Studio UI; preserve current game registry and controllers.
+-- 2026-10-26.6 Register Bike Universe tuning, stunts and local crash guards.
+-- 2026-10-26.5 Register evidence-backed Clover RPG controls and gathering.
+-- 2026-10-26.9-studio Sidebar slides at fixed width; clip viewport avoids per-frame page reflow.
+-- 2026-10-26.7-studio Spring window/press motion, directional pages, sliding nav and toast.
+-- 2026-10-26.6-studio Hideable sidebar, category chips, two-line rows, toast, hotkeys.
+-- 2026-10-26.5-studio Iris accent shell, sectioned nav, primary actions, gold stars.
+-- 2026-10-26.5 Register evidence-backed Clover RPG controls and gathering.
+-- 2026-10-26.4 Suspend hidden settings polling; disable zero-strength blur.
+-- 2026-10-26.3 Expand Rally power/grip/brake ranges; keep speed/stability caps.
+-- 2026-10-26.2 Add Rally music volume and applied-tune readouts.
+-- 2026-10-26.1 Register Backseat Rally tuning and pace-note mute.
+-- 2026-10-24.3 Embed Critical Strike in the hub.
+-- 2026-10-24.2 Embed Gakuran, Counter Blox, Flee the Facility; drop ten modules.
+-- 2026-10-24.1 Unify page layouts, kit settings, navigation and interaction motion.
+-- 2026-10-20.5 Remove Combat Warriors registration.
+-- 2026-10-20.2 Register Banknote ESP and WideOpen.
+-- 2026-10-19.1 Register A Bizarre Day : Classic.
+-- 2026-09-23.1 Register Project Slayers 2.
+-- .52 Register Twisted.
+-- .51 Restore Auto-start Admin setting.
+-- .50 Auto-start Admin except in Critical Strike.
 -- HOST-MOUNT CONTRACT (hub skill S6, migration step)
---   Before running a module the hub publishes:
---     getgenv().__R3ST_HOST = { host = <Frame>, width = n, height = n,
---                               build = <hub build>, back = function() end }
---   A module that understands it parents its root into `host`, creates no
---   ScreenGui, no BlurEffect, no window drag and no "back to hub" button of its
---   own -- the hub owns all four. A module that does not understand it ignores
---   the global and opens standalone, exactly as before. The global is cleared
---   the moment the chunk returns, so nothing leaks into a later inject.
---   New modules build through Kit.moduleShell; legacy host adapters remain
---   visible as migration debt in tools/check_hub.py.
-local BUILD_VERSION = "2026-10-20.2"
+local BUILD_VERSION = "2026-10-26.13-public"
 local SHELL_CONTRACT = "1"
 local GKEY = "__R3ST_HUB"
 local HOST_KEY = "__R3ST_HOST"
@@ -124,31 +40,20 @@ local MarketplaceService = game:GetService("MarketplaceService")
 local G = getgenv()
 if G[GKEY] and G[GKEY].destroy then pcall(G[GKEY].destroy) end
 G[HOST_KEY] = nil
-
--- Every local that a closure below reads is declared here first. A function
--- that closes over a `local` declared *after* it silently reads a global
--- instead -- that is what broke setLaunchToast in .7.
 local alive = true
 local connections = {}
 local screen
 local destroy
 local saveQueued = false
 local favoritesMigrated = false
--- Declared up here because openGame() reads it and is defined ~40 lines above
--- the builders that populate it; a `local` declared later is a nil GLOBAL to
--- everything above it (AGENTS.md ledger: nil forward reference).
-local rowRefresh = {}   -- page name -> function, called when favorites change
-local toggleShown       -- show/hide the whole hub, with motion (RightShift)
+local rowRefresh = {} -- page name -> function, called when favorites change
+local toggleShown -- show/hide the whole hub, with motion (RightShift)
 local launchToast
 local Log
 local C
 local state
 local pages = {}
 local navButtons = {}
--- The nav row's label and icon are separate Instances now (the icon is drawn,
--- so it cannot be concatenated into the button's Text), and setPage recolours
--- both. Declared here with navButtons because setPage closes over them and is
--- defined long before the sidebar builds them.
 local navLabels = {}
 local navIcons = {}
 local navOrder = {}
@@ -157,33 +62,19 @@ local content
 local sidebar
 local blur
 local root
--- id -> { gkey, name, id } for every module currently embedded. A map, not one
--- slot: each host page owns its own frame, so a module stays mounted and armed
--- while the user reads another tab. Switching pages must never disarm a module.
 local mountedModules = {}
 local lastMounted -- the most recent one, for reload()/status() with no target
--- id -> mount(force) and id -> registry entry, for the agent reload API (.13).
--- Only pages that were actually built get in here, and a page is only built for
--- a module that passed the identity gate -- so the API inherits S2 isolation
--- instead of re-implementing it.
 local hostMounts = {}
 local hostEntries = {}
 local hostAlias = {} -- lowercase id / file / name -> id
--- Persistent inspection records. __R3ST_HOST is intentionally transient, so a
--- verifier cannot discover the correct host after a module finishes loading
--- unless the hub keeps the ownership relationship here.
 local hostPages = {} -- id -> { page, host, reload, entry }
-
 pcall(function()
 	local ok, factory = pcall(loadfile, "log.lua")
 	if ok and type(factory) == "function" then
 		local ok2, logger = pcall(factory, "rbx_hub")
-		if ok2 and type(logger) == "table" then
-			Log = logger
-		end
+		if ok2 and type(logger) == "table" then Log = logger end
 	end
 end)
-
 local function hubLog(level, message)
 	local line = ("[%s] %s %s"):format(os.date("%H:%M:%S"), BUILD_VERSION, tostring(message))
 	if Log then
@@ -195,9 +86,7 @@ local function hubLog(level, message)
 		return
 	end
 	pcall(function()
-		if makefolder and isfolder and not isfolder("logs") then
-			makefolder("logs")
-		end
+		if makefolder and isfolder and not isfolder("logs") then makefolder("logs") end
 		if appendfile and isfile and isfile("logs/rbx_hub.log") then
 			appendfile("logs/rbx_hub.log", line .. "\n")
 		elseif writefile then
@@ -205,16 +94,7 @@ local function hubLog(level, message)
 		end
 	end)
 end
-
---==========================================================================
--- The shared kit, loaded BEFORE the shell (it used to load 350 lines later,
--- which is why the shell could not use its tokens and kept a palette of its
--- own). Potassium roots readfile at workspace\ while the user injects from the
--- Explorer tab, so Explorer is tried first -- see the MODULE_PATHS note at
--- loadModule's other caller and hub skill S11.
---==========================================================================
 local MODULE_PATHS = { "../scripts/%s", "%s", "scripts/%s" }
-
 local function loadModule(file)
 	local lastErr
 	for _, pattern in ipairs(MODULE_PATHS) do
@@ -223,7 +103,10 @@ local function loadModule(file)
 		if readOk and type(src) == "string" and #src > 0 then
 			local chunk, err = loadstring(src, "=" .. file)
 			if type(chunk) == "function" then
-				hubLog("info", "resolved " .. file .. " -> " .. path .. " (" .. tostring(#src) .. " bytes)")
+				hubLog(
+					"info",
+					"resolved " .. file .. " -> " .. path .. " (" .. tostring(#src) .. " bytes)"
+				)
 				return chunk
 			end
 			lastErr = "compile error in " .. path .. ": " .. tostring(err)
@@ -232,9 +115,10 @@ local function loadModule(file)
 	if lastErr then return nil, lastErr end
 	return nil, "not found in the Potassium Explorer folder (" .. file .. ")"
 end
-
 local UIKit
 do
+	-- The studio kit first; the canonical kit keeps the shell usable if the copy
+	-- is missing from the Explorer folder.
 	local chunk = loadModule("r3st_ui.lua")
 	if chunk then
 		local ok, kit = pcall(chunk)
@@ -243,211 +127,272 @@ do
 	if UIKit then
 		hubLog("info", "ui kit " .. tostring(UIKit.VERSION))
 		if tostring(UIKit.SHELL_CONTRACT) ~= SHELL_CONTRACT then
-			hubLog("warn", "ui shell contract mismatch want=" .. SHELL_CONTRACT
-				.. " got=" .. tostring(UIKit.SHELL_CONTRACT))
+			hubLog(
+				"warn",
+				"ui shell contract mismatch want="
+					.. SHELL_CONTRACT
+					.. " got="
+					.. tostring(UIKit.SHELL_CONTRACT)
+			)
 		end
 	else
 		hubLog("warn", "r3st_ui.lua not loadable - hub falls back to its built-in palette")
 	end
 end
-
--- ONE palette. The hub used to carry its own near-miss of the kit's: `panel`
--- was pure bg (so the sidebar and content had no edge against the window at
--- all, which is most of why the shell looked flat) and `dim` was 165,167,172
--- against the kit's 146,146,158 -- two greys with the same name, side by side.
--- The literals below are only the fallback for a missing kit.
-C = (UIKit and UIKit.COL) or {
-	bg = Color3.fromRGB(7, 7, 9), panel = Color3.fromRGB(13, 13, 16), raised = Color3.fromRGB(17, 17, 21),
-	hover = Color3.fromRGB(24, 24, 29), line = Color3.fromRGB(42, 42, 50), text = Color3.fromRGB(240, 240, 245),
-	dim = Color3.fromRGB(146, 146, 158), green = Color3.fromRGB(72, 205, 57), white = Color3.fromRGB(255, 255, 255),
-	bad = Color3.fromRGB(255, 120, 120), faint = Color3.fromRGB(104, 104, 116),
-	rowHover = Color3.fromRGB(31, 31, 37),
+C = (UIKit and UIKit.COL)
+	or {
+		bg = Color3.fromRGB(7, 7, 9), panel = Color3.fromRGB(13, 13, 16),
+		raised = Color3.fromRGB(17, 17, 21), hover = Color3.fromRGB(24, 24, 29),
+		line = Color3.fromRGB(42, 42, 50), text = Color3.fromRGB(240, 240, 245),
+		dim = Color3.fromRGB(146, 146, 158), green = Color3.fromRGB(72, 205, 57),
+		white = Color3.fromRGB(255, 255, 255), bad = Color3.fromRGB(255, 120, 120),
+		faint = Color3.fromRGB(104, 104, 116), rowHover = Color3.fromRGB(31, 31, 37),
+		card = Color3.fromRGB(17, 17, 21), row = Color3.fromRGB(24, 24, 29),
+		lineSoft = Color3.fromRGB(30, 30, 36), lineStrong = Color3.fromRGB(80, 80, 96),
+		good = Color3.fromRGB(72, 205, 57), warn = Color3.fromRGB(251, 191, 36),
+		accent = Color3.fromRGB(84, 66, 196), accentHover = Color3.fromRGB(102, 84, 218),
+		accentSoft = Color3.fromRGB(30, 24, 58), accentText = Color3.fromRGB(168, 152, 250),
+	}
+-- Older kits predate the accent tokens; derive them so the shell never indexes nil.
+C.accent = C.accent or Color3.fromRGB(84, 66, 196)
+C.accentHover = C.accentHover or Color3.fromRGB(102, 84, 218)
+C.accentSoft = C.accentSoft or Color3.fromRGB(30, 24, 58)
+C.accentText = C.accentText or Color3.fromRGB(168, 152, 250)
+C.lineStrong = C.lineStrong or C.dim
+C.warn = C.warn or Color3.fromRGB(251, 191, 36)
+local FONT = (UIKit and UIKit.FONT) or {
+	bold = Enum.Font.GothamBold, semi = Enum.Font.GothamMedium, body = Enum.Font.Gotham,
+	heavy = Enum.Font.GothamBlack, mono = Enum.Font.Code,
 }
-local MOTION = (UIKit and UIKit.MOTION) or { fast = 0.10, base = 0.14, slow = 0.20 }
-local function tween(obj, props, dur)
-	if UIKit and UIKit.tween then return UIKit.tween(obj, props, dur) end
-	for k, v in pairs(props) do pcall(function() obj[k] = v end) end
+local SPACE = (UIKit and UIKit.SPACE) or { xs = 4, sm = 8, md = 12, lg = 16, xl = 24, xxl = 32 }
+local MOTION = (UIKit and UIKit.MOTION)
+	or { fast = 0.18, base = 0.30, slow = 0.42, spring = 0.48, exit = 0.16 }
+local function tween(obj, props, dur, style)
+	if UIKit and UIKit.tween then return UIKit.tween(obj, props, dur, style) end
+	for k, v in pairs(props) do
+		pcall(function() obj[k] = v end)
+	end
 	return nil
 end
-
+-- Floating toast: slides in at the bottom of the window and clears itself, so
+-- feedback never shoves page content around or lingers stale.
 local function setLaunchToast(text, isError)
 	if not launchToast or not launchToast.Parent then return end
+	local ticket = (launchToast:GetAttribute("R3ST_Ticket") or 0) + 1
+	launchToast:SetAttribute("R3ST_Ticket", ticket)
 	launchToast.Text = text or ""
-	launchToast.TextColor3 = isError and C.bad or C.dim
+	launchToast.TextColor3 = isError and C.bad or C.text
+	local edge = launchToast:FindFirstChildOfClass("UIStroke")
+	if edge then edge.Color = isError and C.bad or C.accent end
+	launchToast.Visible = launchToast.Text ~= ""
+	local rest, below = UDim2.new(0.5, 0, 1, -28), UDim2.new(0.5, 0, 1, -16)
+	if launchToast.Visible and ticket > 1 and launchToast:GetAttribute("R3ST_Up") then
+		-- Updating a toast must not rescale all its text.
+		tween(launchToast, { Position = rest }, MOTION.fast)
+	elseif launchToast.Visible then
+		launchToast.Position = below
+		tween(launchToast, { Position = rest }, MOTION.spring, "spring")
+	end
+	launchToast:SetAttribute("R3ST_Up", launchToast.Visible)
+	task.delay(isError and 5 or 3.5, function()
+		if launchToast and launchToast.Parent
+			and launchToast:GetAttribute("R3ST_Ticket") == ticket then
+			launchToast:SetAttribute("R3ST_Up", false)
+			tween(launchToast, { Position = below }, MOTION.exit, "in")
+			task.delay(MOTION.exit, function()
+				if launchToast and launchToast.Parent
+					and launchToast:GetAttribute("R3ST_Ticket") == ticket then
+					launchToast.Visible = false
+				end
+			end)
+		end
+	end)
 end
-
 state = {
-	favorites = {},
-	recent = {},
-	page = "Home",
-	selectedGame = "Ghost Driver",
-	windowX = 0,
-	windowY = 0,
-	-- Real window size, drag-resized from the corner grip. Replaces `uiScale`,
-	-- which was loaded, clamped and read by fit() but had no control anywhere in
-	-- the UI -- unreachable state pretending to be a setting.
-	windowW = 1180,
-	windowH = 700,
-	theme = "Midnight",
-	blur = 5,
-	autosave = true,
+	favorites = {}, recent = {}, page = "Home", selectedGame = "Ghost Driver", windowX = 0,
+	windowY = 0, windowW = 1180, windowH = 700, theme = "Midnight", blur = 5, autosave = true,
 	autoOpen = true,
-	autoAdmin = true,  -- rejoin is automatic, so the ] bar comes back with the hub
+	autoAdmin = true, -- rejoin is automatic, so the ] bar comes back with the hub
 	reduceMotion = false,
+	navHidden = false, -- Ctrl+B or the header menu button slides the sidebar away
 }
-
 local function connect(signal, fn)
 	local c = signal:Connect(fn)
 	connections[#connections + 1] = c
 	return c
 end
-
--- Favorites and Recent rebuild their rows by destroying and recreating them, and
--- every row wires ~5 connections. Destroying the Instance drops the connection
--- but NOT our reference to it, so `connections` grew all session and teardown
--- walked a list that was mostly dead entries. Compact it on each rebuild.
 local function pruneConnections()
-	local kept = {}
-	for _, c in ipairs(connections) do
-		local ok, live = pcall(function() return c.Connected end)
-		if not ok or live then kept[#kept + 1] = c end
+	-- Kit.bind retains this table; compact it without replacing its identity.
+	local count = 0
+	for _, connection in ipairs(connections) do
+		local ok, live = pcall(function() return connection.Connected end)
+		if not ok or live then
+			count += 1
+			connections[count] = connection
+		end
 	end
-	connections = kept
+	for i = #connections, count + 1, -1 do connections[i] = nil end
 end
-
---==========================================================================
--- Registry
---   Identity comes from each module's source: gameId is the universe (VIP-safe),
---   placeId is the canonical place. embed honours the host contract; gkey owns
---   teardown. Backends stay in games/<slug>/scripts/, never in this registry.
---==========================================================================
 local REGISTRY = {
+	{ id = "bike-universe", moduleKey = "BikeUniverse", name = "Bike Universe", cat = "Vehicle",
+		placeId = 98628861455414, gameId = 10768284407, file = "bike_universe_hub.lua", embed = true,
+		gkey = "__BIKE_UNIVERSE_HUB",
+		desc = "Saved per-bike speed, handling, suspension, wheelies, stunts and local crash guards; camera, audio and player tags.",
+	},
+	{ id = "backseat-rally", moduleKey = "BackseatRally", name = "Backseat Rally", cat = "Vehicle",
+		placeId = 94278659624110, gameId = 10769543742, file = "backseat_rally_hub.lua", embed = true,
+		gkey = "__BACKSEAT_RALLY_HUB",
+		desc = "Saved per-car traction, handling, speed and pace-note narrator mute.",
+	},
 	{ id = "wideopen", moduleKey = "WideOpen", name = "WideOpen", cat = "Vehicle",
 		placeId = 109959833715820, gameId = 10766812776, file = "wideopen_hub.lua", embed = true,
-		gkey = "__WIDEOPEN_HUB", desc = "Motorcycle power, gearing, handling, wheelie assistance, ECU and rail guard." },
+		gkey = "__WIDEOPEN_HUB",
+		desc = "Saved bike tuning, wheelie limiter, vehicle contact "
+			.. "guard, ECU and player-name ESP.",
+	},
 	{ id = "ghost-driver", moduleKey = "GhostDriver", name = "Ghost Driver", cat = "Vehicle",
-		placeId = 137228775845999, gameId = 10173311467, file = "gd2.lua", embed = true, gkey = "__GD2",
-		desc = "Vehicle tuning, handling, stance, exhaust, audio mixer and ESP." },
-	{ id = "blue-lock-rivals", moduleKey = "BlueLockRivals", name = "Blue Lock Rivals", cat = "Sports",
-		placeId = 18668065416, gameId = 6325068386, file = "blr_hub.lua", embed = true, gkey = "__BLR_HUB",
-		desc = "Cooldown bypass, shot power, ability tuning and client stamina." },
-	{ id = "volleyball-legends", moduleKey = "VolleyballLegends", name = "Volleyball Legends", cat = "Sports",
-		placeId = 73956553001240, gameId = 6931042565, file = "vbl_hub.lua", embed = true, gkey = "__VBL_HUB",
-		desc = "Directional hits, local hitbox tuning, air control and look ESP." },
+		placeId = 137228775845999, gameId = 10173311467, file = "gd2.lua", embed = true,
+		gkey = "__GD2",
+		desc = "Vehicle tuning, handling, stance, exhaust, audio mixer and ESP.",
+	},
+	{ id = "blue-lock-rivals", moduleKey = "BlueLockRivals", name = "Blue Lock Rivals",
+	cat = "Sports",
+		placeId = 18668065416, gameId = 6325068386, file = "blr_hub.lua", embed = true,
+		gkey = "__BLR_HUB",
+		desc = "Cooldown bypass, shot power, ability tuning and client stamina.",
+	},
+	{ id = "volleyball-legends", moduleKey = "VolleyballLegends", name = "Volleyball Legends",
+		cat = "Sports", placeId = 73956553001240, gameId = 6931042565, file = "vbl_hub.lua",
+		embed = true,
+		gkey = "__VBL_HUB",
+		desc = "Directional hits, local hitbox tuning, air control and look ESP.",
+	},
 	{ id = "azure-latch", moduleKey = "AzureLatch", name = "Azure Latch", cat = "Sports",
-		placeId = 94647229517154, gameId = 6945584306, file = "azure_latch_hub.lua", embed = true, gkey = "__AZURE_LATCH_HUB",
-		desc = "Player and ball awareness from replicated match state." },
-	{ id = "critical-strike", moduleKey = "CriticalStrike", name = "Critical Strike", cat = "Fighting",
-		placeId = 8246089782, gameId = 3163813433, file = "cs_admin.lua", gkey = "__CS_ADMIN",
-		desc = "cs_core engine: projectile guidance classes, ally assist, admin bar." },
+		placeId = 94647229517154, gameId = 6945584306, file = "azure_latch_hub.lua", embed = true,
+		gkey = "__AZURE_LATCH_HUB", desc = "Player and ball awareness from replicated match state.",
+	},
+	{ id = "critical-strike", moduleKey = "CriticalStrike", name = "Critical Strike",
+	cat = "Fighting",
+		placeId = 8246089782, gameId = 3163813433, file = "cs_admin.lua", embed = true,
+		gkey = "__CS_ADMIN",
+		desc = "cs_core engine: projectile guidance classes, ally assist, admin bar.",
+	},
 	{ id = "gakuran", moduleKey = "Gakuran", name = "Gakuran", cat = "Fighting",
-		placeId = 128736949265057, gameId = 9199655655, file = "gakuran_autoparry.lua", gkey = "__GAKURAN_AUTOPARRY",
-		desc = "Windup-predictive perfect block." },
+		placeId = 128736949265057, gameId = 9199655655, file = "gakuran_autoparry.lua",
+		embed = true, gkey = "__GAKURAN_AUTOPARRY", desc = "Windup-predictive perfect block.",
+	},
 	{ id = "build-a-base-rng", moduleKey = "BuildABaseRNG", name = "Build a Base RNG", cat = "RNG",
 		placeId = 99108783264633, gameId = 10253235584, file = "bab_hub.lua", embed = true,
-		gkey = "__BUILD_A_BASE_RNG_HUB", desc = "Wave combat, skill purchasing and paced roll utilities." },
+		gkey = "__BUILD_A_BASE_RNG_HUB",
+		desc = "Wave combat, skill purchasing and paced roll utilities.",
+	},
 	{ id = "fisch", moduleKey = "Fisch", name = "Fisch", cat = "Simulator",
-		placeId = 131716211654599, gameId = 5750914919, file = "fisch_hub.lua", embed = true,
-		gkey = "__FISCH_HUB", desc = "Automatic casting, shaking and centered-bar reeling." },
+	placeId = 131716211654599,
+		gameId = 5750914919, file = "fisch_hub.lua", embed = true, gkey = "__FISCH_HUB",
+		desc = "Automatic casting, shaking and centered-bar reeling.",
+	},
 	{ id = "sell-ores", moduleKey = "SellOres", name = "Sell Ores", cat = "Simulator",
 		placeId = 122572082932179, gameId = 10336278580, file = "sell_ores_hub.lua", embed = true,
-		gkey = "__SELL_ORES_HUB", desc = "Auto roll with profit-aware ore buying, crate/furnace chains, upgrades and floors." },
+		gkey = "__SELL_ORES_HUB",
+		desc = "Auto roll with profit-aware ore buying, crate/furnace chains, upgrades and floors.",
+	},
 	{ id = "overhang", moduleKey = "Overhang", name = "Overhang", cat = "Adventure",
 		placeId = 125633828844867, gameId = 9878210988, file = "overhang_hub.lua", embed = true,
-		gkey = "__OVERHANG_HUB", desc = "Native grab assistance and client-local climbing rods." },
+		gkey = "__OVERHANG_HUB", desc = "Native grab assistance and client-local climbing rods.",
+	},
 	{ id = "illegal-soccer", moduleKey = "IllegalSoccer", name = "Illegal Soccer", cat = "Sports",
-		placeId = 126987974021910, gameId = 10155360168, file = "illegal_soccer_hub.lua", embed = true,
-		gkey = "__ILLEGALSOCCER", desc = "Client-side stamina, shot power and charge mobility." },
-	{ id = "clean-all-leaves", moduleKey = "CleanAllLeaves", name = "Clean All Leaves", cat = "Simulator",
-		placeId = 100068273119174, gameId = 10539411000, file = "leaves_hub.lua", desc = "Collection and pacing tools." },
-	{ id = "sols-rng", moduleKey = "SolsRNG", name = "Sol's RNG", cat = "RNG",
-		placeId = 15532962292, gameId = 5361032378, file = "sols_hub.lua", desc = "Aura roll readouts and timers." },
-	{ id = "soulrift", moduleKey = "Soulrift", name = "Soulrift", cat = "RPG",
-		placeId = 92186908729708, gameId = 10200740632, file = "soulrift_hub.lua", desc = "Combat and progression tools." },
-	{ id = "storage-hunters", moduleKey = "StorageHunters", name = "Storage Hunters", cat = "Simulator",
-		placeId = 98800969324557, gameId = 10261267004, file = "sh_hub.lua", desc = "Unit value readouts and bidding help." },
-	{ id = "tbod-squared", moduleKey = "TbodSquared", name = "TBOD Squared", cat = "Fighting",
-		placeId = 139063887391814, gameId = 10263732883, file = "tbod_hub.lua", desc = "Combat assist toolkit." },
-	{ id = "unscathed-rng", moduleKey = "UnscathedRNG", name = "Unscathed RNG", cat = "RNG",
-		placeId = 122951224417794, gameId = 8959257868, file = "unscathed_hub.lua", desc = "Roll tracking and combat advisor." },
+		placeId = 126987974021910, gameId = 10155360168, file = "illegal_soccer_hub.lua",
+		embed = true,
+		gkey = "__ILLEGALSOCCER", desc = "Client-side stamina, shot power and charge mobility.",
+	},
 	{ id = "runaways", moduleKey = "Runaways", name = "Runaways", cat = "Survival",
-		placeId = 117311404196294, gameId = 7585140258, file = "runaways.lua",
-		embed = true, gkey = "__RUNAWAYS_INTEL", desc = "Survival awareness toolkit." },
-	{ id = "mafia", moduleKey = "Mafia", name = "Mafia", cat = "Survival",
-		placeId = 83705601973004, gameId = 7497471789, file = "mafia_hub.lua", embed = true, gkey = "__MAFIA_HUB",
-		desc = "Disguise-to-username roster, life-state ESP, round and vote readout." },
-	{ id = "evade", moduleKey = "Evade", name = "Evade", cat = "Survival",
-		placeId = 9872472334, gameId = 3647333358, file = "evade_kit.lua", embed = true, gkey = "__EVADE_KIT",
-		desc = "Bhop, first-person body, revive and awareness kit." },
-	{ id = "hypershot", moduleKey = "Hypershot", name = "Hypershot", cat = "Shooter",
-		placeId = 100040622766961, gameId = 5995470825, file = "hypershot_esp.lua", desc = "Player ESP." },
+		placeId = 117311404196294, gameId = 7585140258, file = "runaways.lua", embed = true,
+		gkey = "__RUNAWAYS_INTEL", desc = "Survival awareness toolkit.",
+	},
+	{ id = "mafia", moduleKey = "Mafia", name = "Mafia", cat = "Survival", placeId = 83705601973004,
+		gameId = 7497471789, file = "mafia_hub.lua", embed = true, gkey = "__MAFIA_HUB",
+		desc = "Disguise-to-username roster, life-state ESP, round and vote readout.",
+	},
+	{ id = "evade", moduleKey = "Evade", name = "Evade", cat = "Survival", placeId = 9872472334,
+		gameId = 3647333358, file = "evade_kit.lua", embed = true, gkey = "__EVADE_KIT",
+		desc = "Bhop, first-person body, revive and awareness kit.",
+	},
 	{ id = "counterblox", moduleKey = "Counterblox", name = "Counter Blox", cat = "Shooter",
-		placeId = 301549746, gameId = 115797356, file = "counterblox_esp.lua", desc = "Player and bomb ESP." },
+		placeId = 301549746, gameId = 115797356, file = "counterblox_esp.lua",
+		embed = true, gkey = "__CB_ESP", desc = "Player and bomb ESP.",
+	},
 	{ id = "cold-war", moduleKey = "ColdWar", name = "Cold War", cat = "Shooter",
-		placeId = 13687899540, gameId = 4750561026, file = "coldwar_esp.lua", embed = true, gkey = "__COLDWAR_ESP",
-		desc = "Player and mounted-MG ESP, chams, healthbars." },
+		placeId = 13687899540,
+		gameId = 4750561026, file = "coldwar_esp.lua", embed = true, gkey = "__COLDWAR_ESP",
+		desc = "Player and mounted-MG ESP, chams, healthbars.",
+	},
 	{ id = "bloxstrike", moduleKey = "BloxStrike", name = "BloxStrike", cat = "Shooter",
-		placeId = 114234929420007, gameId = 7633926880, file = "bloxstrike_esp.lua", embed = true, gkey = "__BX_ESP",
-		desc = "Enemy ESP, soft aim, and a local skin/knife picker." },
-	{ id = "onetap", moduleKey = "OneTap", name = "One Tap", cat = "Shooter",
-		placeId = 85207102870777, gameId = 9294074907, file = "onetap_esp.lua", desc = "Player ESP." },
+		placeId = 114234929420007, gameId = 7633926880, file = "bloxstrike_esp.lua", embed = true,
+		gkey = "__BX_ESP", desc = "Enemy ESP, soft aim, and a local skin/knife picker.",
+	},
 	{ id = "operation-one", moduleKey = "OperationOne", name = "Operation One", cat = "Shooter",
-		placeId = 72920620366355, gameId = 8307114974, file = "operation_one_esp.lua", embed = true, gkey = "__OP1_ESP",
-		desc = "Player ESP, gun duck and optional soft aim." },
-	{ id = "overkill", moduleKey = "Overkill", name = "Overkill", cat = "Shooter",
-		placeId = 74996816424339, gameId = 7872343282, file = "overkill_aim.lua", desc = "Aim assist and telemetry." },
-	-- The only row still without a gameId: there is no dump under game_dumps/863266079
-	-- and apoc_rising_2_esp.lua:23 pins the place only. A guessed universe gates the
-	-- wrong game, so this one waits for a dump instead. It will refuse in a private
-	-- server until then.
-	{ id = "apoc-rising-2", moduleKey = "ApocRising2", name = "Apocalypse Rising 2", cat = "Survival",
-		placeId = 863266079, file = "apoc_rising_2_esp.lua", desc = "Loot and player ESP." },
-	{ id = "flee-facility", moduleKey = "FleeFacility", name = "Flee the Facility", cat = "Survival",
-		placeId = 893973440, gameId = 372226183, file = "flee_facility_esp.lua", desc = "Player and computer ESP." },
+		placeId = 72920620366355, gameId = 8307114974, file = "operation_one_esp.lua", embed = true,
+		gkey = "__OP1_ESP", desc = "Player ESP, gun duck and optional soft aim.",
+	},
+	{ id = "flee-facility", moduleKey = "FleeFacility", name = "Flee the Facility",
+	cat = "Survival",
+		placeId = 893973440, gameId = 372226183, file = "flee_facility_esp.lua",
+		embed = true, gkey = "__FTF_ESP", desc = "Player and computer ESP.",
+	},
 	-- Lobby and level are separate places (games/dungeon-quest-reborn README:3,
 	-- GameId 9931749389); the module is valid in both.
-	{ id = "dungeon-quest-reborn", moduleKey = "DungeonQuestReborn", name = "Dungeon Quest Reborn", cat = "RPG",
-		placeId = 77649408247578, placeIds = { 77649408247578, 85776757589518 }, gameId = 9931749389,
+	{ id = "dungeon-quest-reborn", moduleKey = "DungeonQuestReborn", name = "Dungeon Quest Reborn",
+		cat = "RPG", placeId = 77649408247578,
+		placeIds = { 77649408247578, 85776757589518 }, gameId = 9931749389,
 		file = "dqr_hub.lua", embed = true, gkey = "__DQR_HUB",
-		desc = "Attack telegraphs, auto dodge, auto abilities, mob ESP and burst momentum dash." },
+		desc = "Attack telegraphs, auto dodge, auto abilities, mob ESP and burst momentum dash.",
+	},
 	-- PlaceId from the dump named in games/other/RIVALS_SOFTAIM_SAFETY_2026-08-13.md:11.
 	{ id = "rivals", moduleKey = "Rivals", name = "Rivals", cat = "Shooter",
-		placeId = 117398147513099, gameId = 6035872082, file = "rivals_esp.lua", embed = true, gkey = "__RIVALS_ESP",
-		desc = "Player ESP with guarded soft aim and backstab assist." },
-	{ id = "arsenal", moduleKey = "Arsenal", name = "Arsenal", cat = "Shooter",
-		placeId = 286090429, gameId = 111958650, file = "arsenal_esp.lua", embed = true, gkey = "__ARSENAL_ESP",
-		desc = "Player ESP, chams and healthbars." },
-	{ id = "project-slayers-2", moduleKey = "ProjectSlayers2", name = "Project Slayers 2", cat = "RPG", placeId = 136406881576517, gameId = 5595353122, file = "ps2_hub.lua", embed = true, gkey = "__PS2_HUB", desc = "Black Market prediction, quest item ESP, spawn alerts, teleports, free dash and auto block." },
-	{ id = "bizarre-day-classic", moduleKey = "BizarreDayClassic", name = "A Bizarre Day : Classic", cat = "RPG", placeId = 120318126233314, gameId = 969567031, file = "abd_item_esp.lua", embed = true, gkey = "__ABD_ITEM_ESP", desc = "Dropped-item ESP including Banknotes, arrows, fruits and masks; saved filters, music and collection sweep." },
+	placeId = 117398147513099,
+		gameId = 6035872082, file = "rivals_esp.lua", embed = true, gkey = "__RIVALS_ESP",
+		desc = "Player ESP with guarded soft aim and backstab assist.",
+	},
+	{ id = "arsenal", moduleKey = "Arsenal", name = "Arsenal", cat = "Shooter", placeId = 286090429,
+		gameId = 111958650, file = "arsenal_esp.lua", embed = true, gkey = "__ARSENAL_ESP",
+		desc = "Player ESP, chams and healthbars.",
+	},
+	{ id = "project-slayers-2", moduleKey = "ProjectSlayers2", name = "Project Slayers 2",
+	cat = "RPG",
+		placeId = 136406881576517, gameId = 5595353122, file = "ps2_hub.lua", embed = true,
+		gkey = "__PS2_HUB",
+		desc = "Black Market prediction, quest item ESP, spawn alerts, "
+			.. "teleports, free dash and auto block.",
+	},
+	{ id = "bizarre-day-classic", moduleKey = "BizarreDayClassic", name = "A Bizarre Day : Classic",
+		cat = "RPG",
+		placeId = 120318126233314, gameId = 969567031, file = "abd_item_esp.lua", embed = true,
+		gkey = "__ABD_ITEM_ESP",
+		desc = "Dropped-item ESP including Banknotes, arrows, fruits and "
+			.. "masks; saved filters, music and collection sweep.",
+	},
+	{ id = "clover-rpg", moduleKey = "CloverRPG", name = "Clover RPG", cat = "RPG",
+		placeId = 8248288152, placeIds = {8248288152, 8248164019}, gameId = 3164482049,
+		file = "clover_hub.lua", embed = true, gkey = "__CLOVER_HUB",
+		desc = "Mob/player/node ESP, fullbright, gathering assistants, opened-chest collection and local broom controls.",
+	},
 	{ id = "twisted", moduleKey = "Twisted", name = "Twisted", cat = "Survival",
-		placeId = 14170731342, gameId = 2251388500, file = "twisted_hub.lua", embed = true, gkey = "__TWISTED_HUB",
-		desc = "Tornado and storm ESP with EF ratings, chase vehicle readouts, sounding data and night visibility." },
+	placeId = 14170731342,
+		gameId = 2251388500, file = "twisted_hub.lua", embed = true, gkey = "__TWISTED_HUB",
+		desc = "Tornado and storm ESP with EF ratings, chase vehicle "
+			.. "readouts, sounding data and night visibility.",
+	},
 }
-
--- General tools keep dedicated sidebar entries; there is no redundant
--- Universal browser. Neither is automatically executed.
 local GENERAL = {
 	{ id = "anims", name = "Anims", file = "anims.lua", embed = true, gkey = "__ANIMS_GUI",
-		desc = "M7-derived animation packs: 21 custom, 35 Roblox, 24 UGC, per-slot mixing." },
+		desc = "M7-derived animation packs: 21 custom, 35 Roblox, 57 UGC, per-slot mixing.",
+	},
 	{ id = "admin", name = "Admin", file = "admin.lua", gkey = "Admin",
-		desc = "The ] command bar backed by internal/admin_core.lua. Opens its own minimal bar." },
+		desc = "The ] command bar backed by internal/admin_core.lua. Opens its own minimal bar.",
+	},
 }
-
 local registryCount = #REGISTRY
-
 local activeEntry
-
--- Some games split lobby and level across separate places. `placeIds` lists
--- every place the module is valid in; `placeId` stays the canonical one used for
--- artwork and for the "join this first" message.
--- IDENTITY IS THE UNIVERSE, NOT THE PLACE.
--- A VIP / private server is the same experience, but the client can land on a
--- different PlaceId inside it, so a PlaceId-only gate fails closed in exactly
--- the servers people play in most. game.GameId is the universe id and is stable
--- across every place and every private server of one experience, so it is
--- checked FIRST. PlaceId stays as the fallback for the entries that have no
--- gameId yet, and it is still what artwork and the "join this first" message
--- use.
 local function entryMatches(entry)
 	if type(entry) ~= "table" then return false end
 	if entry.gameId and entry.gameId == game.GameId then return true end
@@ -459,21 +404,13 @@ local function entryMatches(entry)
 	end
 	return false
 end
-
-local function canLaunch(entry)
-	return entryMatches(entry)
-end
-
+local function canLaunch(entry) return entryMatches(entry) end
 for _, entry in ipairs(REGISTRY) do
 	if entryMatches(entry) then
 		activeEntry = entry
 		break
 	end
 end
-
---==========================================================================
--- Config
---==========================================================================
 local function loadConfig()
 	local ok, raw = pcall(readfile, CONFIG_FILE)
 	if not ok then return end
@@ -488,35 +425,37 @@ local function loadConfig()
 	if type(saved.selectedGame) == "string" then state.selectedGame = saved.selectedGame end
 	if type(saved.windowX) == "number" then state.windowX = saved.windowX end
 	if type(saved.windowY) == "number" then state.windowY = saved.windowY end
-	if saved.theme == "Midnight" or saved.theme == "Slate" or saved.theme == "Carbon" then state.theme = saved.theme end
+	if saved.theme == "Midnight" or saved.theme == "Slate" or saved.theme == "Carbon" then
+		state.theme = saved.theme
+	end
 	if type(saved.windowW) == "number" then state.windowW = math.clamp(saved.windowW, 900, 4000) end
 	if type(saved.windowH) == "number" then state.windowH = math.clamp(saved.windowH, 540, 4000) end
 	if type(saved.blur) == "number" then state.blur = math.clamp(saved.blur, 0, 12) end
 	if type(saved.autosave) == "boolean" then state.autosave = saved.autosave end
 	if type(saved.autoAdmin) == "boolean" then state.autoAdmin = saved.autoAdmin end
 	if type(saved.reduceMotion) == "boolean" then state.reduceMotion = saved.reduceMotion end
-	-- Favorites used to be keyed by DISPLAY NAME while `recent` was keyed by id,
-	-- so renaming a game silently dropped its star (hub skill S5 says key by
-	-- stable module id). Migrate name keys to ids once, keeping every star.
+	if type(saved.navHidden) == "boolean" then state.navHidden = saved.navHidden end
 	if type(saved.favorites) == "table" then
 		local migrated, changed = {}, false
 		local byName = {}
-		for _, e in ipairs(REGISTRY) do byName[e.name] = e.id end
+		for _, e in ipairs(REGISTRY) do
+			byName[e.name] = e.id
+		end
 		for key, value in pairs(saved.favorites) do
 			if value then
 				local id = byName[key]
-				if id then migrated[id] = true; changed = true else migrated[key] = true end
+				if id then
+					migrated[id] = true
+					changed = true
+				else
+					migrated[key] = true
+				end
 			end
 		end
 		state.favorites = migrated
-		-- NOT saveConfig() here: it is declared BELOW loadConfig, so calling it
-		-- from this scope resolves to a nil global instead of the function -- the
-		-- exact forward-reference class in the AGENTS.md ledger. The migration is
-		-- in memory; the first ordinary save writes it.
 		favoritesMigrated = changed
 	end
 end
-
 local function saveConfig(force)
 	if not force and not state.autosave then return end
 	if saveQueued then return end
@@ -528,19 +467,14 @@ local function saveConfig(force)
 		if ok then pcall(writefile, CONFIG_FILE, raw) end
 	end)
 end
-
 loadConfig()
 if favoritesMigrated then saveConfig(true) end
--- Apply the saved motion preference to the kit BEFORE any widget is built, so
--- the first paint already honours it instead of easing once and then stopping.
 if UIKit then UIKit.reduceMotion = state.reduceMotion == true end
--- The identity-matched module is the product entry point, not a second click.
--- Foreign modules still fail closed before this policy is evaluated.
 state.autoOpen = true
-
 local entryById = {}
-for _, entry in ipairs(REGISTRY) do entryById[entry.id] = entry end
-
+for _, entry in ipairs(REGISTRY) do
+	entryById[entry.id] = entry
+end
 local function noteRecent(entry)
 	local out = { entry.id }
 	for _, id in ipairs(state.recent) do
@@ -549,58 +483,152 @@ local function noteRecent(entry)
 	state.recent = out
 	saveConfig(true)
 end
-
---==========================================================================
--- Widgets
---==========================================================================
 local function mk(class, props, parent)
 	local o = Instance.new(class)
-	for k, v in pairs(props or {}) do o[k] = v end
+	for k, v in pairs(props or {}) do
+		o[k] = v
+	end
 	if parent then o.Parent = parent end
 	return o
 end
 local function round(o, px) mk("UICorner", { CornerRadius = UDim.new(0, px or 8) }, o) end
--- Returns the UIStroke, not the parent: callers recolour it on hover and press,
--- and returning the parent silently makes every one of those a no-op (the kit
--- hit exactly this and its own stroke() carries the same note).
 local function stroke(o, transparency)
 	return mk("UIStroke", { Color = C.line, Thickness = 1, Transparency = transparency or 0 }, o)
 end
-local function pad(o, n) mk("UIPadding", { PaddingTop=UDim.new(0,n), PaddingBottom=UDim.new(0,n), PaddingLeft=UDim.new(0,n), PaddingRight=UDim.new(0,n) }, o) end
 local function label(parent, text, size, pos, fontSize, color, bold)
-	return mk("TextLabel", { BackgroundTransparency=1, Size=size, Position=pos or UDim2.new(), Text=text, TextColor3=color or C.text,
-		Font=bold and Enum.Font.GothamBold or Enum.Font.GothamMedium, TextSize=fontSize or 13, TextXAlignment=Enum.TextXAlignment.Left }, parent)
+	return mk("TextLabel", {
+		BackgroundTransparency = 1, Size = size, Position = pos or UDim2.new(), Text = text,
+		TextColor3 = color or C.text,
+		Font = bold and FONT.bold or FONT.semi,
+		TextSize = fontSize or 14, TextXAlignment = Enum.TextXAlignment.Left,
+	}, parent)
 end
-local function button(parent, text, size, pos)
-	local b = mk("TextButton", { Size=size, Position=pos or UDim2.new(), BackgroundColor3=C.panel, BorderSizePixel=0, AutoButtonColor=false,
-		Text=text, TextColor3=C.text, Font=Enum.Font.GothamMedium, TextSize=13 }, parent)
-	round(b, 7)
-	local s = stroke(b)
-	-- Hover AND pressed, both eased. Every button in the hub had an instant
-	-- background swap and no acknowledgement of the click itself.
+-- opts.hover / opts.edge return the hovered fill and resting edge, so primary
+-- and selected surfaces keep their colour instead of falling back to grey.
+local function interactive(hit, surface, base, opts)
+	opts = opts or {}
+	local edge = surface:FindFirstChildOfClass("UIStroke")
 	local inside, down = false, false
 	local function paint()
-		tween(b, { BackgroundColor3 = down and C.line or (inside and (C.rowHover or C.hover) or C.panel) }, MOTION.fast)
-		tween(s, { Color = (inside or down) and C.white or C.line }, MOTION.fast)
+		local normal = type(base) == "function" and base() or C[base or "panel"]
+		local lifted = opts.hover and opts.hover() or C.rowHover
+		tween(
+			surface,
+			{ BackgroundColor3 = down and (opts.hover and normal or C.line)
+				or (inside and lifted or normal) },
+			MOTION.fast
+		)
+		if surface:GetAttribute("R3ST_Nav") then
+			tween(surface, { BackgroundTransparency = (inside or down) and 0.3 or 1 }, MOTION.fast)
+		end
+		if edge then
+			local rest = opts.edge and opts.edge() or C.line
+			tween(edge, { Color = down and C.accent
+				or (inside and (rest == C.line and C.lineStrong or rest) or rest) }, MOTION.fast)
+		end
 	end
-	connect(b.MouseEnter, function() inside = true; paint() end)
-	connect(b.MouseLeave, function() inside = false; down = false; paint() end)
-	connect(b.MouseButton1Down, function() down = true; paint() end)
-	connect(b.MouseButton1Up, function() down = false; paint() end)
+	connect(hit.MouseEnter, function()
+		inside = true
+		paint()
+	end)
+	connect(hit.MouseLeave, function()
+		inside = false
+		down = false
+		paint()
+	end)
+	-- Press sinks the surface; release springs it back.
+	local function press(on)
+		if surface.AbsoluteSize.X > 240 or surface.AbsoluteSize.Y > 80 then return end
+		local s = surface:FindFirstChildOfClass("UIScale")
+		if not s and not on then return end
+		s = s or mk("UIScale", { Scale = 1 }, surface)
+		if on then
+			tween(s, { Scale = 0.98 }, 0.08)
+		else
+			tween(s, { Scale = 1 }, MOTION.spring, "spring")
+		end
+	end
+	connect(hit.MouseButton1Down, function()
+		down = true
+		paint()
+		press(true)
+	end)
+	connect(hit.MouseButton1Up, function()
+		down = false
+		paint()
+		press(false)
+	end)
+	connect(hit.MouseLeave, function() press(false) end)
+end
+local function button(parent, text, size, pos)
+	local b = mk("TextButton", {
+		Size = size, Position = pos or UDim2.new(), BackgroundColor3 = C.panel, BorderSizePixel = 0,
+		AutoButtonColor = false, Text = text, TextColor3 = C.text, Font = FONT.semi,
+		TextSize = 14,
+	}, parent)
+	round(b, 8)
+	stroke(b)
+	interactive(b, b, "panel")
 	return b
 end
-local function divider(parent, y) mk("Frame", { Size=UDim2.new(1,-24,0,1), Position=UDim2.fromOffset(12,y), BackgroundColor3=C.line, BorderSizePixel=0 }, parent) end
-
--- Icons are DRAWN by the kit, never typed as a font glyph. The sidebar shipped
--- `⌂ ☆ ◷ ⚙ ⓘ ◇ >_` and the rows shipped `★ ▶ — × ✓ − +`; all of them render as
--- empty tofu boxes on the user's machine (confirmed in the 2026-09-01
--- screenshot, where Recent was a blank rectangle) and the hub skill S9.3 has
--- said "never ship a glyph as an icon" since. The fallbackText arguments below
--- exist only for the case where r3st_ui.lua could not be loaded at all, where
--- the tofu is still better than an unlabelled button.
+-- The one filled action per surface. Accent fill, white bold label.
+local function primaryButton(parent, text, size, pos)
+	local b = mk("TextButton", {
+		Size = size, Position = pos or UDim2.new(), BackgroundColor3 = C.accent,
+		BorderSizePixel = 0, AutoButtonColor = false, Text = text, TextColor3 = C.white,
+		Font = FONT.bold, TextSize = 14,
+	}, parent)
+	round(b, 8)
+	local edge = stroke(b)
+	edge.Color = C.accent
+	interactive(b, b, function() return C.accent end, {
+		hover = function() return C.accentHover end,
+		edge = function() return C.accent end,
+	})
+	return b
+end
+local function card(parent, size, pos, clickable, opts)
+	local box = mk(clickable and "TextButton" or "Frame", {
+		Size = size, Position = pos or UDim2.new(), BackgroundColor3 = C.raised,
+		BorderSizePixel = 0,
+		ClipsDescendants = true,
+	}, parent)
+	if clickable then
+		box.Text = ""
+		box.AutoButtonColor = false
+	end
+	round(box, 10)
+	local edge = stroke(box)
+	if opts and opts.edge then edge.Color = opts.edge() end
+	if clickable then interactive(box, box, "raised", opts) end
+	return box
+end
+local function pageHeader(parent, title, subtitle, compact)
+	local inset = compact and SPACE.lg or SPACE.xl
+	local top = compact and SPACE.sm or SPACE.xl
+	local height = compact and 22 or 34
+	label(
+		parent, title, UDim2.new(1, -2 * inset, 0, height), UDim2.fromOffset(inset, top),
+		compact and 17 or 27,
+		C.text,
+		true
+	).Font = compact and FONT.bold or FONT.heavy
+	local desc = label(
+		parent,
+		subtitle or "",
+		UDim2.new(1, -2 * inset, 0, 20),
+		UDim2.fromOffset(inset, top + height + (compact and 0 or SPACE.xs)), compact and 13 or 14,
+		C.dim
+	)
+	desc.TextTruncate = Enum.TextTruncate.AtEnd
+	return desc
+end
 local function icon(parent, name, size, col, pos, anchor)
 	if not (UIKit and UIKit.icon) then return nil end
-	return UIKit.icon(parent, name, { size = size, color = col or C.dim, pos = pos, anchor = anchor })
+	return UIKit.icon(
+		parent, name,
+		{ size = size, color = col or C.dim, pos = pos, anchor = anchor }
+	)
 end
 local function iconColor(box, col)
 	if box and UIKit and UIKit.iconColor then UIKit.iconColor(box, col) end
@@ -608,46 +636,44 @@ end
 local function iconSet(box, name, col)
 	if box and UIKit and UIKit.iconSet then UIKit.iconSet(box, name, col) end
 end
-
--- A button whose whole label is one centred icon. Returns the button AND the
--- icon box, because callers recolour or swap the icon to show state.
-local function iconButton(parent, iconName, fallbackText, size, pos, col)
+local function iconButton(parent, iconName, size, pos, col)
 	local b = button(parent, "", size, pos)
 	local px = math.max(12, math.min(size.X.Offset, size.Y.Offset) - 14)
-	local ic = icon(b, iconName, px, col or C.dim, UDim2.fromScale(.5, .5), Vector2.new(.5, .5))
-	if not ic then b.Text = fallbackText end
+	local ic = icon(b, iconName, px, col or C.dim, UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+	b:SetAttribute("R3ST_Icon", iconName)
 	return b, ic
 end
-
---==========================================================================
--- Shell
---==========================================================================
--- Default size, not fixed size. The window is drag-resizable from the grip in
--- its bottom-right corner and remembers what it was left at; the old build was
--- a hard 1180x700 whose only sizing control (`uiScale`) had no UI anywhere, so
--- it was unreachable state pretending to be a setting. uiScale is gone.
 local W_DEFAULT, H_DEFAULT = 1180, 700
 local MIN_W, MIN_H = 560, 400
 local SIDEBAR_W, HEADER_H = 170, 64
 local W = math.max(MIN_W, math.floor(tonumber(state.windowW) or W_DEFAULT))
 local H = math.max(MIN_H, math.floor(tonumber(state.windowH) or H_DEFAULT))
--- Kept for the host contract's fallback dimensions only; the real host frame is
--- measured from AbsoluteSize.
 local CONTENT_W, BODY_H = W - SIDEBAR_W - 36, H - HEADER_H - 12
-
 local core = CoreGui
-if type(cloneref) == "function" then local ok, copy = pcall(cloneref, core); if ok and copy then core = copy end end
-screen = mk("ScreenGui", { Name="RBXH_"..tostring(math.random(1000,9999)), ResetOnSpawn=false, IgnoreGuiInset=true,
-	ZIndexBehavior=Enum.ZIndexBehavior.Global, DisplayOrder=2147483647 }, core)
+if type(cloneref) == "function" then
+	local ok, copy = pcall(cloneref, core)
+	if ok and copy then core = copy end
+end
+screen = mk("ScreenGui", {
+	Name = "RBXH_" .. tostring(math.random(1000, 9999)), ResetOnSpawn = false,
+	IgnoreGuiInset = true,
+	ZIndexBehavior = Enum.ZIndexBehavior.Global, DisplayOrder = 2147483647,
+}, core)
 pcall(sethiddenproperty, screen, "OnTopOfCoreBlur", true)
-
-blur = mk("BlurEffect", { Name=screen.Name.."_Blur", Size=state.blur }, Lighting)
-local shade = mk("Frame", { Size=UDim2.fromScale(1,1), BackgroundTransparency=1, BorderSizePixel=0 }, screen)
-root = mk("Frame", { AnchorPoint=Vector2.new(.5,.5), Position=UDim2.new(.5,state.windowX,.5,state.windowY), Size=UDim2.fromOffset(W,H),
-	BackgroundColor3=C.bg, BorderSizePixel=0, ClipsDescendants=true }, shade)
-round(root, 12); stroke(root)
--- Clamp to the viewport so a remembered size from a bigger screen can never
--- leave the window larger than the display and unreachable.
+blur = mk("BlurEffect", { Name = screen.Name .. "_Blur", Size = state.blur }, Lighting)
+local shade = mk(
+	"Frame",
+	{ Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, BorderSizePixel = 0 },
+	screen
+)
+root = mk("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0.5),
+	Position = UDim2.new(0.5, state.windowX, 0.5, state.windowY),
+	Size = UDim2.fromOffset(W, H), BackgroundColor3 = C.bg, BorderSizePixel = 0,
+	ClipsDescendants = true,
+}, shade)
+round(root, 14)
+stroke(root)
 local function fit()
 	local cam = workspace.CurrentCamera
 	if not cam then return end
@@ -659,81 +685,150 @@ local function fit()
 	root.Size = UDim2.fromOffset(w, h)
 	local x = root.Position.X.Scale * v.X + root.Position.X.Offset
 	local y = root.Position.Y.Scale * v.Y + root.Position.Y.Offset
-	root.Position = UDim2.new(.5, math.clamp(x, w/2, v.X-w/2)-v.X/2,
-		.5, math.clamp(y, h/2, v.Y-h/2)-v.Y/2)
+	root.Position = UDim2.new(
+		0.5,
+		math.clamp(x, w / 2, v.X - w / 2) - v.X / 2,
+		0.5,
+		math.clamp(y, h / 2, v.Y - h / 2) - v.Y / 2
+	)
 end
 fit()
-if workspace.CurrentCamera then connect(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"), fit) end
-
-local header = mk("Frame", { Size=UDim2.new(1,0,0,64), BackgroundTransparency=1 }, root)
-local logo = mk("Frame", { Size=UDim2.fromOffset(28,28), Position=UDim2.fromOffset(24,18), BackgroundColor3=C.white, BorderSizePixel=0, Rotation=14 }, header); round(logo,2)
-mk("Frame", { Size=UDim2.fromOffset(9,9), AnchorPoint=Vector2.new(.5,.5), Position=UDim2.fromScale(.5,.5), BackgroundColor3=C.bg, BorderSizePixel=0 }, logo)
-label(header,"R3ST HUB",UDim2.fromOffset(180,34),UDim2.fromOffset(66,15),19,C.text,true)
-local experienceLabel = label(header, activeEntry and ("|   " .. activeEntry.name) or "|   unsupported place",
-	UDim2.new(1,-300,0,34), UDim2.fromOffset(190,16), 14, C.dim)
-experienceLabel.TextTruncate = Enum.TextTruncate.AtEnd
-local minimize = iconButton(header,"minus","—",UDim2.fromOffset(38,34),UDim2.new(1,-94,0,15))
-local close = iconButton(header,"close","×",UDim2.fromOffset(38,34),UDim2.new(1,-48,0,15))
-
--- Navigation scrolls independently; compact mode gives its width to content.
-sidebar = mk("ScrollingFrame", { Position=UDim2.fromOffset(12,HEADER_H), Size=UDim2.new(0,SIDEBAR_W,1,-(HEADER_H+12)),
-	BackgroundColor3=C.panel, BorderSizePixel=0,CanvasSize=UDim2.fromOffset(0,510),
-	-- Active=true or the wheel never reaches it: a ScrollingFrame defaults to
-	-- false and then refuses to scroll however right its CanvasSize is.
-	Active=true,
-	ScrollBarThickness=2,ScrollingDirection=Enum.ScrollingDirection.Y }, root); round(sidebar,10); stroke(sidebar)
-content = mk("Frame", { Position=UDim2.fromOffset(12+SIDEBAR_W+12,HEADER_H), Size=UDim2.new(1,-(SIDEBAR_W+36),1,-(HEADER_H+12)),
-	BackgroundColor3=C.panel, BorderSizePixel=0, ClipsDescendants=true }, root); round(content,10); stroke(content)
-
+if workspace.CurrentCamera then
+	connect(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"), fit)
+end
+local header = mk("Frame", { Size = UDim2.new(1, 0, 0, 64), BackgroundTransparency = 1 }, root)
+-- Mark: an accent tile with a white diamond, lit from the top-left.
+local logo = mk("Frame", {
+	Size = UDim2.fromOffset(32, 32), Position = UDim2.fromOffset(60, 16),
+	BackgroundColor3 = C.accent, BorderSizePixel = 0,
+}, header)
+round(logo, 9)
+mk("UIGradient", {
+	Rotation = 45,
+	Color = ColorSequence.new(Color3.new(1, 1, 1), Color3.fromRGB(150, 150, 190)),
+}, logo)
+local logoGem = mk("Frame", {
+	Size = UDim2.fromOffset(11, 11), AnchorPoint = Vector2.new(0.5, 0.5), Rotation = 45,
+	Position = UDim2.fromScale(0.5, 0.5), BackgroundColor3 = C.white, BorderSizePixel = 0,
+}, logo)
+round(logoGem, 2)
+local brand = label(header, "R3ST <font transparency=\"0.45\">HUB</font>",
+	UDim2.fromOffset(116, 34), UDim2.fromOffset(102, 15), 20, C.text, true)
+brand.RichText = true
+brand.Font = FONT.heavy
+-- Session pill: which game this inject matched, with a live dot.
+local experienceLabel = mk("Frame", {
+	Name = "R3ST_SessionPill", AutomaticSize = Enum.AutomaticSize.X,
+	Size = UDim2.fromOffset(0, 28), Position = UDim2.fromOffset(226, 18),
+	BackgroundColor3 = activeEntry and C.accentSoft or C.card, BorderSizePixel = 0,
+}, header)
+round(experienceLabel, 13)
+local pillEdge = stroke(experienceLabel)
+pillEdge.Color = activeEntry and C.accent or C.line
+pillEdge.Transparency = activeEntry and 0.55 or 0
+mk("UIPadding", { PaddingLeft = UDim.new(0, 24), PaddingRight = UDim.new(0, 12) }, experienceLabel)
+local pillDot = mk("Frame", {
+	Size = UDim2.fromOffset(7, 7), AnchorPoint = Vector2.new(0, 0.5),
+	Position = UDim2.new(0, -13, 0.5, 0), BorderSizePixel = 0,
+	BackgroundColor3 = activeEntry and C.good or C.faint,
+}, experienceLabel)
+round(pillDot, 4)
+local pillText = label(experienceLabel,
+	activeEntry and activeEntry.name or "Unsupported place",
+	UDim2.fromOffset(0, 28), UDim2.new(), 13, activeEntry and C.text or C.dim, true)
+pillText.AutomaticSize = Enum.AutomaticSize.X
+mk("UISizeConstraint", { MaxSize = Vector2.new(320, 28) }, experienceLabel)
+local minimize = iconButton(header, "minus", UDim2.fromOffset(36, 34), UDim2.new(1, -92, 0, 15))
+local close, closeIcon =
+	iconButton(header, "close", UDim2.fromOffset(36, 34), UDim2.new(1, -48, 0, 15))
+-- Close is the only destructive header action; it warms on hover.
+connect(close.MouseEnter, function() iconColor(closeIcon, C.bad) end)
+connect(close.MouseLeave, function() iconColor(closeIcon, C.dim) end)
+sidebar = mk("ScrollingFrame", {
+	Position = UDim2.fromOffset(12, HEADER_H), Size = UDim2.new(0, SIDEBAR_W, 1, -(HEADER_H + 12)),
+	BackgroundColor3 = C.panel, BorderSizePixel = 0, CanvasSize = UDim2.fromOffset(0, 510),
+	Active = true, ScrollBarThickness = 2, ScrollingDirection = Enum.ScrollingDirection.Y,
+	ScrollBarImageColor3 = C.lineStrong,
+}, root)
+round(sidebar, 12)
+stroke(sidebar)
+-- Animate a clipping viewport, never the width of the mounted UI itself.
+-- Content uses pixel dimensions and stays right-aligned while the mask moves.
+local contentViewport = mk("Frame", {
+	Name = "R3ST_ContentViewport",
+	Position = UDim2.fromOffset(SIDEBAR_W + 24, HEADER_H),
+	Size = UDim2.new(1, -(SIDEBAR_W + 36), 1, -(HEADER_H + 12)),
+	BackgroundTransparency = 1, BorderSizePixel = 0, ClipsDescendants = true,
+}, root)
+content = mk("Frame", {
+	AnchorPoint = Vector2.new(1, 0), Position = UDim2.fromScale(1, 0),
+	Size = UDim2.fromOffset(CONTENT_W, BODY_H), BackgroundColor3 = C.panel,
+	BorderSizePixel = 0, ClipsDescendants = true,
+}, contentViewport)
+round(content, 12)
+stroke(content)
+launchToast = mk("TextLabel", {
+	Name = "R3ST_Toast", AnchorPoint = Vector2.new(0.5, 1),
+	Position = UDim2.new(0.5, 0, 1, -28), Size = UDim2.fromOffset(0, 38),
+	AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = C.card, BorderSizePixel = 0,
+	Text = "", TextColor3 = C.text, Font = FONT.semi, TextSize = 14, Visible = false,
+	ZIndex = 60,
+}, root)
+round(launchToast, 19)
+stroke(launchToast).Color = C.accent
+mk("UIPadding", { PaddingLeft = UDim.new(0, 20), PaddingRight = UDim.new(0, 20) }, launchToast)
 setPage = function(name)
 	if not pages[name] then name = "Home" end
 	local changed = state.page ~= name
 	if name == "Home" and rowRefresh.Home then rowRefresh.Home() end
+	-- Pages enter from the side of the nav they come from: down the list rises up.
+	local from, to = navButtons[state.page], navButtons[name]
+	local dir = (from and to and to.Position.Y.Offset < from.Position.Y.Offset) and -1 or 1
 	state.page = name
-	for k,p in pairs(pages) do
+	for k, p in pairs(pages) do
 		local on = (k == name)
 		if on and changed and UIKit and UIKit.pageIn then
-			UIKit.pageIn(p)
-			-- Animate the actual page surface, not a child that may not exist.
-			p.Position = UDim2.fromOffset(state.reduceMotion and 0 or 10, 0)
-			tween(p, {Position=UDim2.fromOffset(0,0)}, MOTION.base)
+			UIKit.pageIn(p, dir)
+			-- One page motion keeps text sharp and avoids per-row layout callbacks.
 		else
 			p.Visible = on
 		end
 		if not on then p.Visible = false end
 	end
-	for k,b in pairs(navButtons) do
+	-- One highlight glides between nav items instead of each item blinking.
+	local glide = sidebar and sidebar:FindFirstChild("R3ST_NavGlide")
+	if glide and to then
+		local fresh = not glide.Visible
+		glide.Visible = true
+		tween(glide, { Position = to.Position }, (changed and not fresh) and MOTION.spring or 0,
+			"spring")
+		local bar = glide:FindFirstChild("R3ST_GlideBar")
+		if bar and changed then
+			bar.Size = UDim2.new(0, 3, 0, 6)
+			tween(bar, { Size = UDim2.new(0, 3, 0, 20) }, MOTION.spring, "spring")
+		end
+	end
+	for k, b in pairs(navButtons) do
 		local on = (k == name)
-		tween(b, { BackgroundColor3 = on and C.row or C.panel }, changed and MOTION.fast or 0)
-		-- The row's text lives in its own TextLabel since the icons became drawn
-		-- Instances, so tinting the BUTTON's TextColor3 would recolour nothing.
+		tween(b, { BackgroundColor3 = on and C.accentSoft or C.panel,
+			BackgroundTransparency = glide and 1 or 0 }, changed and MOTION.fast or 0)
 		local lbl = navLabels[k]
-		if lbl then tween(lbl, { TextColor3 = on and C.text or C.dim }, changed and MOTION.fast or 0) end
-		iconColor(navIcons[k], on and C.text or C.dim)
-		-- A left edge marker on the active row: with a monochrome palette the
-		-- background lift alone is a weak "you are here".
+		if lbl then
+			tween(lbl, { TextColor3 = on and C.text or C.dim }, changed and MOTION.fast or 0)
+			lbl.Font = on and FONT.bold or FONT.semi
+		end
+		iconColor(navIcons[k], on and C.accentText or C.dim)
 		local mark = b:FindFirstChild("R3ST_Active")
 		if mark then
-			tween(mark, { Size = UDim2.new(0, 3, 0, on and 18 or 0) }, changed and MOTION.fast or 0)
+			mark.Size = UDim2.new(0, 3, 0, (on and not glide) and 18 or 0)
 		end
+		-- The sliding highlight is enough; icons stay at their final pixel size.
 	end
 	saveConfig()
 end
-
---==========================================================================
--- Artwork
---==========================================================================
--- placeId -> "rbxassetid://n", or false once we know the lookup is useless.
--- GetProductInfo is a yielding, rate-limited web call and the old version fired
--- one PER CARD with no cache and no skip: 25 featured cards + 25 list rows = ~50
--- calls at boot, plus a fresh burst every time Favorites or Recent rebuilt its
--- rows. That is the stutter on open.
 local thumbCache = {}
 local thumbInFlight = {}
-
 local function applyThumbnail(imageObj, entry)
-	-- The universe id already gives a correct icon with no web call at all, so
-	-- when we have one the Marketplace fallback is pure waste.
 	if entry.gameId then
 		imageObj.Image = "rbxthumb://type=GameIcon&id=" .. tostring(entry.gameId) .. "&w=150&h=150"
 		return
@@ -746,7 +841,6 @@ local function applyThumbnail(imageObj, entry)
 		return
 	end
 	if cached == false then return end -- looked up already, nothing usable
-	-- Coalesce: many cards want the same place, and only the first should ask.
 	local waiters = thumbInFlight[id]
 	if waiters then
 		waiters[#waiters + 1] = imageObj
@@ -766,25 +860,11 @@ local function applyThumbnail(imageObj, entry)
 		end
 	end)
 end
-
---==========================================================================
--- Module loading
---   `host` non-nil => publish the host-mount contract for the duration of the
---   chunk. Modules that do not know the contract simply never read the global.
---==========================================================================
--- Potassium's file API is rooted at %LOCALAPPDATA%\Potassium\workspace\, but the
--- user injects from the Explorer tab = %LOCALAPPDATA%\Potassium\scripts\. A bare
--- loadfile("gd2.lua") therefore reads the WORKSPACE, where most modules do not
--- exist at all -- and where the ones that do are stale leftovers. That is what
--- made Ghost Driver report "missing" while a v.9 anims.lua loaded and opened its
--- own window. The Explorer folder is checked first, every time.
 local function unmountModule(id)
 	local record = mountedModules[id]
 	if not record then return end
 	local handle = G[record.gkey]
 	if type(handle) == "table" then
-		-- A controller that exposes detach/mount explicitly separates its panel
-		-- from its live state. Route changes own the panel only.
 		local fn = handle.detach or handle.destroy or handle.unload
 		if type(fn) == "function" then pcall(fn) end
 	end
@@ -793,40 +873,36 @@ local function unmountModule(id)
 	mountedModules[id] = nil
 	if lastMounted and lastMounted.id == id then lastMounted = nil end
 end
-
 local function unmountAll()
-	for id in pairs(mountedModules) do unmountModule(id) end
+	for id in pairs(mountedModules) do
+		unmountModule(id)
+	end
 end
-
-local function runModule(entry, host, fresh)  -- fresh = explicit reload
+local function runModule(entry, host, fresh) -- fresh = explicit reload
 	local chunk, err = loadModule(entry.file)
 	if not chunk then
 		hubLog("warn", "load failed file=" .. entry.file .. " err=" .. tostring(err))
 		return false, err
 	end
 	if host then
-		-- Only this entry's own previous instance: another module in another host
-		-- page keeps running. Loading one module never disarms another.
 		unmountModule(entry.id)
-		for _, child in ipairs(host:GetChildren()) do child:Destroy() end
-			G[HOST_KEY] = {
-				host = host,
+		for _, child in ipairs(host:GetChildren()) do
+			child:Destroy()
+		end
+		G[HOST_KEY] = {
+			host = host,
 			width = host.AbsoluteSize.X > 0 and host.AbsoluteSize.X or (CONTENT_W - 24),
 			height = host.AbsoluteSize.Y > 0 and host.AbsoluteSize.Y or (BODY_H - 24),
 			build = BUILD_VERSION,
-			hub = "R3ST",
-				autosave = state.autosave,
-				contract = SHELL_CONTRACT,
-				ui = UIKit, -- the shared control template (scripts/r3st_ui.lua)
+			hub = "R3ST", autosave = state.autosave, contract = SHELL_CONTRACT,
+			ui = UIKit, -- the shared control template (scripts/r3st_ui.lua)
 			back = function() setPage("Home") end,
 		}
 	end
-	-- Tab switches only: re-enter a resident controller without restarting it.
-	-- NEVER on a reload -- that discarded the chunk just read and re-mounted the
-	-- resident, keeping gd2 .46 live while both roots held .48, logged as OK.
 	local existing = G[entry.gkey]
 	if fresh and type(existing) == "table" and type(existing.unload) == "function" then
-		pcall(existing.unload); existing = nil
+		pcall(existing.unload)
+		existing = nil
 	end
 	if host and not fresh and type(existing) == "table" and type(existing.mount) == "function" then
 		local mounted, mountErr = pcall(existing.mount, G[HOST_KEY])
@@ -854,17 +930,21 @@ local function runModule(entry, host, fresh)  -- fresh = explicit reload
 	if entry.placeId then noteRecent(entry) end
 	return true
 end
-
--- Standalone launch from a browser card/row: fail closed on the wrong place,
--- then hand the screen over to the module exactly as .7 did.
 local function openGame(entry)
 	if not entryMatches(entry) then
-		hubLog("warn", "launch blocked wrong place want=" .. tostring(entry.placeId) .. " have=" .. tostring(game.PlaceId))
-		setLaunchToast("Join " .. entry.name .. " first (PlaceId " .. tostring(entry.placeId) .. ")", true)
+		hubLog(
+			"warn",
+			"launch blocked wrong place want="
+				.. tostring(entry.placeId)
+				.. " have="
+				.. tostring(game.PlaceId)
+		)
+		setLaunchToast(
+			"Join " .. entry.name .. " first (PlaceId " .. tostring(entry.placeId) .. ")",
+			true
+		)
 		return false
 	end
-	-- An embeddable module for this place has its own tab; send the user there
-	-- rather than opening a second shell.
 	if entry.embed and pages[entry.name] then
 		setPage(entry.name)
 		return true
@@ -875,19 +955,10 @@ local function openGame(entry)
 		setLaunchToast(entry.name .. ": " .. tostring(err), true)
 		return false
 	end
-	-- The hub used to destroy() itself here, so launching any un-ported module
-	-- cost you the hub -- and the activeEntry page below launches the SAME module
-	-- and keeps it. Two behaviours for one action, decided by which button you
-	-- pressed. The hub now stays; the module owns its own window, and RightShift
-	-- still hides the hub if it is in the way.
 	setLaunchToast(entry.name .. " opened in its own window — RightShift hides the hub", false)
 	if rowRefresh.Recent then rowRefresh.Recent() end
 	return true
 end
-
--- feedbackIcon is the drawn icon inside feedbackBtn, when there is one. A failed
--- launch flashes it red rather than swapping the label to "!" -- the icon has no
--- text to swap, and colour says "that did not work" without a glyph.
 local function tryLaunch(entry, feedbackBtn, feedbackIcon)
 	state.selectedGame = entry.name
 	saveConfig()
@@ -896,53 +967,96 @@ local function tryLaunch(entry, feedbackBtn, feedbackIcon)
 		iconColor(feedbackIcon, C.bad)
 		task.delay(0.8, function()
 			if alive and feedbackIcon.Parent then
-				iconColor(feedbackIcon, entryMatches(entry) and C.text or C.dim)
+				iconColor(feedbackIcon, entryMatches(entry) and C.accentText or C.dim)
 			end
 		end)
 	elseif feedbackBtn and feedbackBtn:IsA("GuiButton") then
 		local old = feedbackBtn.Text
-		feedbackBtn.Text = entryMatches(entry) and "!" or "—"
+		feedbackBtn.Text = "Unavailable"
 		task.delay(0.8, function()
 			if alive and feedbackBtn.Parent then feedbackBtn.Text = old end
 		end)
 	end
 end
-
---==========================================================================
--- Shared row / card builders
---==========================================================================
+-- Rows read as two lines: name over what it does, so the list is scannable
+-- without hovering. Category and state sit right, actions at the far edge.
+local ROW_H, ROW_STEP = 60, 66
 local function makeGameRow(parent, entry, y, width)
 	local ready = canLaunch(entry)
-	local row = mk("Frame", { Size=UDim2.new(1,width or 0,0,40), Position=UDim2.fromOffset(0,y), BackgroundColor3=C.raised, BorderSizePixel=0 }, parent)
-	round(row,7); stroke(row)
-	local icon = mk("ImageLabel", { Size=UDim2.fromOffset(30,30), Position=UDim2.fromOffset(6,5), BackgroundColor3=C.panel,
-		BorderSizePixel=0, ScaleType=Enum.ScaleType.Crop, ImageTransparency = ready and 0 or 0.35 }, row)
-	round(icon,6)
+	local row = card(parent, UDim2.new(1, width or 0, 0, ROW_H), UDim2.fromOffset(0, y))
+	if ready then row:FindFirstChildOfClass("UIStroke").Color = C.accent end
+	local icon = mk("ImageLabel", {
+		Size = UDim2.fromOffset(44, 44), Position = UDim2.fromOffset(8, 8),
+		BackgroundColor3 = C.panel,
+		BorderSizePixel = 0, ScaleType = Enum.ScaleType.Crop,
+		ImageTransparency = ready and 0 or 0.35,
+	}, row)
+	round(icon, 9)
 	applyThumbnail(icon, entry)
-	label(row, entry.name, UDim2.fromOffset(210,30), UDim2.fromOffset(44,5), 12, C.text).Active = false
-	label(row, entry.cat or "", UDim2.fromOffset(90,24), UDim2.fromOffset(268,8), 11, C.dim).Active = false
-	label(row, ready and "Ready here" or "Visit game", UDim2.fromOffset(110,24), UDim2.fromOffset(380,8), 11,
-		ready and C.green or C.dim).Active = false
-	label(row, entry.desc or "", UDim2.fromOffset(300,24), UDim2.fromOffset(500,8), 11, C.dim).Active = false
-
+	local title =
+		label(row, entry.name, UDim2.new(1, -340, 0, 22), UDim2.fromOffset(64, 9), 16, C.text, true)
+	title.TextTruncate = Enum.TextTruncate.AtEnd
+	local description = label(
+		row,
+		entry.desc or "",
+		UDim2.new(1, -340, 0, 18), UDim2.fromOffset(64, 32), 13,
+		C.dim
+	)
+	description.TextTruncate = Enum.TextTruncate.AtEnd
+	description.Font = FONT.body
+	local status = label(
+		row,
+		ready and "●  Ready here" or "Join to use",
+		UDim2.fromOffset(104, 24), UDim2.new(1, -96, 0.5, 0), 13,
+		ready and C.good or C.faint, ready
+	)
+	status.AnchorPoint = Vector2.new(1, 0.5)
+	status.TextXAlignment = Enum.TextXAlignment.Right
+	local category = mk("TextLabel", {
+		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -212, 0.5, 0),
+		Size = UDim2.fromOffset(0, 26), AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundColor3 = C.accentSoft, BorderSizePixel = 0, Text = entry.cat or "",
+		TextColor3 = C.accentText, Font = FONT.bold, TextSize = 12,
+	}, row)
+	round(category, 13)
+	mk("UIPadding", { PaddingLeft = UDim.new(0, 11), PaddingRight = UDim.new(0, 11) }, category)
+	local function layoutRow()
+		local w = row.AbsoluteSize.X
+		category.Visible = w >= 640 and (entry.cat or "") ~= ""
+		status.Visible = w >= 440
+		local reserve = category.Visible and 336 or (status.Visible and 212 or 100)
+		title.Size = UDim2.new(1, -(64 + reserve), 0, 22)
+		description.Size = UDim2.new(1, -(64 + reserve), 0, 18)
+	end
+	connect(row:GetPropertyChangedSignal("AbsoluteSize"), layoutRow)
+	layoutRow()
 	local starred = state.favorites[entry.id] and true or false
-	local fav, favIcon = iconButton(row, starred and "starOn" or "star", starred and "★" or "☆",
-		UDim2.fromOffset(34,30), UDim2.new(1,-78,0,5), starred and C.text or C.dim)
-	fav.TextSize = 18; fav.ZIndex = 3
-	local play, playIcon = iconButton(row, ready and "play" or "dash", ready and "▶" or "—",
-		UDim2.fromOffset(52,30), UDim2.new(1,-46,0,5), ready and C.text or C.dim)
+	local fav, favIcon = iconButton(
+		row,
+		starred and "starOn" or "star",
+		UDim2.fromOffset(38, 38), UDim2.new(1, -88, 0, 11),
+		starred and C.warn or C.dim
+	)
+	fav.ZIndex = 3
+	local play, playIcon = iconButton(
+		row,
+		ready and "play" or "dash",
+		UDim2.fromOffset(38, 38), UDim2.new(1, -46, 0, 11),
+		ready and C.accentText or C.dim
+	)
 	play.ZIndex = 3
 	if not ready then play.TextColor3 = C.dim end
-	local rowHit = mk("TextButton", { Size=UDim2.new(1,-120,1,0), BackgroundTransparency=1, BorderSizePixel=0, Text="",
-		AutoButtonColor=false, ZIndex=1 }, row)
-
+	local rowHit = mk("TextButton", {
+		Size = UDim2.new(1, -96, 1, 0), BackgroundTransparency = 1, BorderSizePixel = 0, Text = "",
+		AutoButtonColor = false, ZIndex = 1,
+	}, row)
 	local function toggleFav()
 		state.favorites[entry.id] = (not state.favorites[entry.id]) or nil
 		local on = state.favorites[entry.id] and true or false
 		if favIcon then
-			iconSet(favIcon, on and "starOn" or "star", on and C.text or C.dim)
+			iconSet(favIcon, on and "starOn" or "star", on and C.warn or C.dim)
 		else
-			fav.Text = on and "★" or "☆"
+			fav.Text = ""
 		end
 		saveConfig(true)
 		if rowRefresh.Favorites then rowRefresh.Favorites() end
@@ -951,253 +1065,444 @@ local function makeGameRow(parent, entry, y, width)
 	connect(fav.Activated, toggleFav)
 	local function launchFromRow() tryLaunch(entry, play, playIcon) end
 	connect(play.Activated, launchFromRow)
+	interactive(rowHit, row, "raised",
+		ready and { edge = function() return C.accent end } or nil)
 	connect(rowHit.Activated, launchFromRow)
 	return row
 end
-
 local function scrollList(parent, pos, size)
-	local list = mk("ScrollingFrame", { Position=pos, Size=size, BackgroundTransparency=1, BorderSizePixel=0,
-		Active=true, ScrollingDirection=Enum.ScrollingDirection.Y,
-		ScrollBarThickness=3, ScrollBarImageColor3=C.line, CanvasSize=UDim2.new() }, parent)
+	local list = mk("ScrollingFrame", {
+		Position = pos, Size = size, BackgroundTransparency = 1, BorderSizePixel = 0, Active = true,
+		ScrollingDirection = Enum.ScrollingDirection.Y, ScrollBarThickness = 3,
+		ScrollBarImageColor3 = C.lineStrong, CanvasSize = UDim2.new(),
+	}, parent)
 	return list
 end
-
-local function emptyState(parent, title, body)
-	local card = mk("Frame", { Size=UDim2.new(1,-8,0,96), BackgroundColor3=C.raised, BorderSizePixel=0 }, parent)
-	round(card,8); stroke(card)
-	label(card, title, UDim2.new(1,-32,0,24), UDim2.fromOffset(16,16), 14, C.text, true)
-	local b = label(card, body, UDim2.new(1,-32,0,48), UDim2.fromOffset(16,44), 12, C.dim)
+local function emptyState(parent, title, body, iconName)
+	local card = card(parent, UDim2.new(1, -SPACE.sm, 0, 96))
+	-- Icon tile on the left so an empty page reads as intentional, not broken.
+	local tile = mk("Frame", {
+		Size = UDim2.fromOffset(40, 40), Position = UDim2.fromOffset(16, 18),
+		BackgroundColor3 = C.accentSoft, BorderSizePixel = 0,
+	}, card)
+	round(tile, 10)
+	icon(tile, iconName or "info", 20, C.accentText, UDim2.fromScale(0.5, 0.5),
+		Vector2.new(0.5, 0.5))
+	label(card, title, UDim2.new(1, -88, 0, 24), UDim2.fromOffset(72, 14), 16, C.text, true)
+	local b = label(card, body, UDim2.new(1, -88, 0, 48), UDim2.fromOffset(72, 40), 13, C.dim)
 	b.TextWrapped = true
+	b.TextYAlignment = Enum.TextYAlignment.Top
 	return card
 end
-
--- CanvasGroup, not Frame: it renders its children as one surface, so a page
--- switch can fade the whole page instead of nothing. Pages were plain Frames
--- and Kit.pageIn looked for a CanvasGroup child, so every switch was silent.
 local function newPage(name)
-	local ok, p = pcall(function()
-		return mk("CanvasGroup", { Size=UDim2.fromScale(1,1), BackgroundTransparency=1, Visible=false }, content)
-	end)
+	local ok, p = pcall(
+		function()
+			return mk(
+				"CanvasGroup",
+				{ Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false },
+				content
+			)
+		end
+	)
 	if not ok or not p then
-		p = mk("Frame", { Size=UDim2.fromScale(1,1), BackgroundTransparency=1, Visible=false }, content)
+		p = mk(
+			"Frame",
+			{ Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Visible = false },
+			content
+		)
 	end
 	pages[name] = p
 	return p
 end
-
---==========================================================================
--- Home / games browser
---==========================================================================
 local home = newPage("Home")
-local search = mk("TextBox", { Size=UDim2.fromOffset(240,34), Position=UDim2.new(1,-260,0,18), BackgroundColor3=C.bg, BorderSizePixel=0,
-	PlaceholderText="  Search games...", Text="", TextColor3=C.text, PlaceholderColor3=C.dim, Font=Enum.Font.Gotham, TextSize=12,
-	ClearTextOnFocus=false }, home)
-round(search,7); stroke(search)
-launchToast = label(home, "", UDim2.new(1,-40,0,18), UDim2.fromOffset(20,54), 11, C.dim)
-
-local featured = mk("Frame", { Size=UDim2.new(1,-40,0,180), Position=UDim2.fromOffset(20,74), BackgroundColor3=C.bg, BorderSizePixel=0 }, home)
-round(featured,8); stroke(featured)
-label(featured, "Your session", UDim2.fromOffset(300,24), UDim2.fromOffset(14,12), 15, C.text, true)
-label(featured, activeEntry and (activeEntry.name .. " is ready here — open its tab in the sidebar")
-	or "No module matches this PlaceId. Cards below stay browsable and inert.",
-	UDim2.new(1,-28,0,18), UDim2.fromOffset(14,32), 11, C.dim)
-
-local featuredScroll = mk("ScrollingFrame", { Position=UDim2.fromOffset(8,56), Size=UDim2.new(1,-16,0,116), BackgroundTransparency=1,
-	BorderSizePixel=0, ScrollBarThickness=3, ScrollBarImageColor3=C.line, ScrollingDirection=Enum.ScrollingDirection.X,
-	Active=true, CanvasSize=UDim2.new() }, featured)
-
+pageHeader(home, "Home")
+local search = mk("TextBox", {
+	Size = UDim2.fromOffset(240, 40), Position = UDim2.new(1, -260, 0, 18), BackgroundColor3 = C.bg,
+	BorderSizePixel = 0, PlaceholderText = "Search by name, category or feature   (Ctrl+F)",
+	Text = "",
+	TextColor3 = C.text, PlaceholderColor3 = C.faint, Font = FONT.semi, TextSize = 15,
+	ClearTextOnFocus = false,
+}, home)
+search.TextXAlignment = Enum.TextXAlignment.Left
+mk("UIPadding", {
+	PaddingLeft = UDim.new(0, 38), PaddingRight = UDim.new(0, 40),
+}, search)
+local searchIcon = icon(home, "search", 17, C.dim, UDim2.fromOffset(37, 76))
+if searchIcon and #searchIcon:GetChildren() == 0 then
+	-- Keep the glyph inside the kit icon frame when older kits lack search.
+	local lens = mk("Frame", {
+		Size = UDim2.fromOffset(10, 10), BackgroundTransparency = 1,
+		Position = UDim2.fromOffset(0, 0), BorderSizePixel = 0,
+	}, searchIcon)
+	round(lens, 10)
+	local edge = stroke(lens)
+	edge.Color = C.dim
+	mk("Frame", {
+		Size = UDim2.fromOffset(7, 2), Position = UDim2.fromOffset(9, 10),
+		Rotation = 45, BackgroundColor3 = C.dim, BorderSizePixel = 0,
+	}, searchIcon)
+end
+round(search, 10)
+local searchEdge = stroke(search)
+local searchFocused, searchHover = false, false
+local function paintSearch()
+	tween(searchEdge, { Color = searchFocused and C.accent
+		or (searchHover and C.lineStrong or C.line) }, MOTION.fast)
+	iconColor(searchIcon, searchFocused and C.accentText or C.dim)
+end
+connect(search.Focused, function() searchFocused = true; paintSearch() end)
+connect(search.FocusLost, function() searchFocused = false; paintSearch() end)
+connect(search.MouseEnter, function() searchHover = true; paintSearch() end)
+connect(search.MouseLeave, function() searchHover = false; paintSearch() end)
+-- Clear: appears only with a query, one click restores the full list.
+local searchClear = mk("TextButton", {
+	Name = "R3ST_SearchClear", Size = UDim2.fromOffset(28, 28),
+	Position = UDim2.new(1, -58, 0, 76), BackgroundColor3 = C.row, BorderSizePixel = 0,
+	Text = "", AutoButtonColor = false, Visible = false, ZIndex = 3,
+}, home)
+round(searchClear, 7)
+local clearIcon = icon(searchClear, "close", 12, C.dim, UDim2.fromScale(0.5, 0.5),
+	Vector2.new(0.5, 0.5))
+if clearIcon then clearIcon.ZIndex = 4 end
+connect(searchClear.MouseEnter, function() iconColor(clearIcon, C.text) end)
+connect(searchClear.MouseLeave, function() iconColor(clearIcon, C.dim) end)
+connect(searchClear.Activated, function() search.Text = "" end)
+-- Category chips: one tap narrows the list; they combine with the search text.
+local chipStrip = mk("ScrollingFrame", {
+	Name = "R3ST_CategoryChips", Position = UDim2.fromOffset(24, 118),
+	Size = UDim2.new(1, -48, 0, 34), BackgroundTransparency = 1, BorderSizePixel = 0,
+	ScrollBarThickness = 0, ScrollingDirection = Enum.ScrollingDirection.X, Active = true,
+	CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.X,
+}, home)
+mk("UIListLayout", {
+	FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, 8),
+	SortOrder = Enum.SortOrder.LayoutOrder, VerticalAlignment = Enum.VerticalAlignment.Center,
+}, chipStrip)
+local featured = mk("Frame", {
+	Size = UDim2.new(1, -48, 0, 190), Position = UDim2.fromOffset(24, 164), BackgroundColor3 = C.bg,
+	BorderSizePixel = 0,
+}, home)
+round(featured, 12)
+stroke(featured)
+icon(featured, "bolt", 17, C.accentText, UDim2.fromOffset(16, 16))
+label(
+	featured, "Jump back in", UDim2.fromOffset(300, 26), UDim2.fromOffset(40, 12), 18, C.text,
+	true
+)
+local sessionDesc = label(
+	featured,
+	activeEntry and (activeEntry.name .. " is ready here — open its tab in the sidebar")
+		or "No module matches this PlaceId. Cards below stay browsable and inert.",
+	UDim2.new(1, -28, 0, 18), UDim2.fromOffset(16, 40), 13,
+	C.dim
+)
+if activeEntry then
+	local open = primaryButton(
+		featured, "Open " .. activeEntry.name,
+		UDim2.fromOffset(230, 38), UDim2.new(1, -246, 0, 14)
+	)
+	open.TextSize = 15
+	connect(open.Activated, function() openGame(activeEntry) end)
+end
+sessionDesc.Size = UDim2.new(1, activeEntry and -270 or -28, 0, 18)
+sessionDesc.TextTruncate = Enum.TextTruncate.AtEnd
+local featuredScroll = mk("ScrollingFrame", {
+	Position = UDim2.fromOffset(8, 68), Size = UDim2.new(1, -16, 0, 116),
+	BackgroundTransparency = 1,
+	BorderSizePixel = 0, ScrollBarThickness = 3, ScrollBarImageColor3 = C.lineStrong,
+	ScrollingDirection = Enum.ScrollingDirection.X, Active = true, CanvasSize = UDim2.new(),
+}, featured)
 local function makeFeaturedCard(parent, entry, index)
 	local spotlight = activeEntry and entry.id == activeEntry.id
 	local x = 6 + (index - 1) * 130 + ((activeEntry and index > 1) and 116 or 0)
 	local ready = canLaunch(entry)
-	local card = mk("TextButton", { Size=UDim2.fromOffset(spotlight and 240 or 124,110), Position=UDim2.fromOffset(x,0), BackgroundColor3=C.raised,
-		BorderSizePixel=0, Text="", AutoButtonColor=false, ClipsDescendants=true }, parent)
-	round(card,8); stroke(card)
-	local thumb = mk("ImageLabel", { Size=UDim2.new(1,0,0,82), BackgroundTransparency=1, ScaleType=Enum.ScaleType.Crop,
-		ImageTransparency = ready and 0 or 0.35 }, card)
+	local card = card(parent, UDim2.fromOffset(spotlight and 240 or 124, 110),
+		UDim2.fromOffset(x, 0), true,
+		spotlight and { edge = function() return C.accent end } or nil)
+	local thumb = mk("ImageLabel", {
+		Size = UDim2.new(1, 0, 0, 82), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Crop,
+		ImageTransparency = ready and 0 or 0.35,
+	}, card)
 	applyThumbnail(thumb, entry)
-	local name = label(card, entry.name, UDim2.new(1,-8,0,22), UDim2.new(0,4,1,-24), 11, C.text)
+	-- Scrim: fades the art into the card so the title never sits on a hard seam.
+	local scrim = mk("Frame", {
+		Size = UDim2.new(1, 0, 0, 30), Position = UDim2.fromOffset(0, 52),
+		BackgroundColor3 = C.raised, BorderSizePixel = 0,
+	}, card)
+	mk("UIGradient", {
+		Rotation = 90,
+		Transparency = NumberSequence.new(1, 0),
+	}, scrim)
+	local name =
+		label(card, entry.name, UDim2.new(1, -16, 0, 22), UDim2.new(0, 8, 1, -25), 14, C.text, true)
 	name.TextTruncate = Enum.TextTruncate.AtEnd
 	name.Active = false
-	local badge = mk("TextLabel", { Size=UDim2.fromOffset(26,26), Position=UDim2.new(1,-32,0,6), BackgroundColor3=Color3.new(),
-		BackgroundTransparency=0.35, Text = "", TextColor3=C.white, Font=Enum.Font.GothamBold, TextSize=12 }, card)
-	round(badge,6)
+	local badge = mk("TextLabel", {
+		Size = UDim2.fromOffset(26, 26), Position = UDim2.new(1, -32, 0, 6),
+		BackgroundColor3 = ready and C.accent or Color3.new(),
+		BackgroundTransparency = ready and 0 or 0.35, Text = "",
+		TextColor3 = C.white,
+		Font = FONT.bold, TextSize = 12,
+	}, card)
+	round(badge, 13)
 	badge.Active = false
-	local badgeIcon = icon(badge, ready and "play" or "dash", 12, C.white, UDim2.fromScale(.5,.5), Vector2.new(.5,.5))
-	if not badgeIcon then badge.Text = ready and "▶" or "—" end
+	local badgeIcon = icon(
+		badge,
+		ready and "play" or "dash",
+		12, C.white, UDim2.fromScale(0.5, 0.5),
+		Vector2.new(0.5, 0.5)
+	)
 	if badgeIcon then badgeIcon.ZIndex = 3 end
 	connect(card.Activated, function() tryLaunch(entry, card, badgeIcon) end)
 	return card
 end
-
 local function refreshSession()
-	for _,child in ipairs(featuredScroll:GetChildren()) do child:Destroy() end
+	for _, child in ipairs(featuredScroll:GetChildren()) do
+		child:Destroy()
+	end
 	pruneConnections()
 	local order, seen = {}, {}
 	local function push(entry)
 		if entry and not seen[entry.id] and #order < 6 then
-			seen[entry.id] = true; order[#order+1] = entry
+			seen[entry.id] = true
+			order[#order + 1] = entry
 		end
 	end
 	push(activeEntry)
-	for _,entry in ipairs(REGISTRY) do if state.favorites[entry.id] then push(entry) end end
-	for _,id in ipairs(state.recent) do push(entryById[id]) end
-	for i,entry in ipairs(order) do makeFeaturedCard(featuredScroll,entry,i) end
+	for _, entry in ipairs(REGISTRY) do
+		if state.favorites[entry.id] then push(entry) end
+	end
+	for _, id in ipairs(state.recent) do
+		push(entryById[id])
+	end
+	for i, entry in ipairs(order) do
+		makeFeaturedCard(featuredScroll, entry, i)
+	end
 	if #order == 0 then
-		label(featuredScroll,"Star games below to pin them here.",UDim2.new(1,-24,1,0),
-			UDim2.fromOffset(12,0),13,C.dim).TextWrapped = true
+		label(
+			featuredScroll, "Star games below to pin them here.", UDim2.new(1, -24, 1, 0),
+			UDim2.fromOffset(12, 0), 13,
+			C.dim
+		).TextWrapped =
+			true
 	end
 	featuredScroll.CanvasSize = UDim2.fromOffset(6 + #order * 130 + (activeEntry and 116 or 0), 0)
 end
 rowRefresh.Home = refreshSession
 refreshSession()
-
-local resultCount = label(home, "All games · " .. tostring(registryCount), UDim2.fromOffset(220,24), UDim2.fromOffset(20,264), 13, C.dim, true)
-local allList = scrollList(home, UDim2.fromOffset(20,292), UDim2.new(1,-40,1,-308))
+local resultCount = label(
+	home,
+	"All games · " .. tostring(registryCount),
+	UDim2.fromOffset(320, 24), UDim2.fromOffset(24, 366), 15, C.text,
+	true
+)
+local allList = scrollList(home, UDim2.fromOffset(24, 396), UDim2.new(1, -48, 1, -420))
 local gameRows = {}
-do
-	local y = 0
-	for _, entry in ipairs(REGISTRY) do
-		gameRows[entry.name] = makeGameRow(allList, entry, y, -8)
-		y += 44
-	end
-	allList.CanvasSize = UDim2.fromOffset(0, y)
+-- Games playable in this server float to the top; the rest keep registry order.
+local homeOrder = {}
+for _, entry in ipairs(REGISTRY) do
+	if canLaunch(entry) then homeOrder[#homeOrder + 1] = entry end
 end
-local noResults = label(allList, "No matching games. Try a name or category.",
-	UDim2.new(1,-16,0,60), UDim2.fromOffset(8,0), 13, C.dim)
-noResults.TextWrapped = true
+for _, entry in ipairs(REGISTRY) do
+	if not canLaunch(entry) then homeOrder[#homeOrder + 1] = entry end
+end
+for _, entry in ipairs(homeOrder) do
+	gameRows[entry.name] = makeGameRow(allList, entry, 0, -8)
+end
+local noResults = emptyState(allList, "No matching games",
+	"Try a shorter name, another category, or clear the search.", "search")
 noResults.Visible = false
-connect(search:GetPropertyChangedSignal("Text"), function()
+local homeFilter = { cat = "All", first = nil, chips = {} }
+local function refreshHomeList()
 	local q = string.lower(search.Text):match("^%s*(.-)%s*$")
-	local y = 0
-	for _, entry in ipairs(REGISTRY) do
+	searchClear.Visible = search.Text ~= ""
+	local y, shown = 0, 0
+	homeFilter.first = nil
+	for _, entry in ipairs(homeOrder) do
 		local row = gameRows[entry.name]
-		local hit = q == "" or string.find(string.lower(entry.name), q, 1, true) ~= nil
+		local hit = (homeFilter.cat == "All" or entry.cat == homeFilter.cat) and (q == ""
+			or string.find(string.lower(entry.name), q, 1, true) ~= nil
 			or string.find(string.lower(entry.cat or ""), q, 1, true) ~= nil
-			or string.find(string.lower(entry.desc or ""), q, 1, true) ~= nil
+			or string.find(string.lower(entry.desc or ""), q, 1, true) ~= nil)
 		row.Visible = hit
-		if hit then row.Position = UDim2.fromOffset(0, y); y += 44 end
+		if hit then
+			homeFilter.first = homeFilter.first or entry
+			row.Position = UDim2.fromOffset(0, y)
+			y += ROW_STEP
+			shown += 1
+		end
 	end
-	allList.CanvasSize = UDim2.fromOffset(0, y)
-	noResults.Visible = y == 0
-	resultCount.Text = "All games · " .. tostring(y / 44) .. " / " .. tostring(registryCount)
+	noResults.Visible = shown == 0
+	allList.CanvasSize = UDim2.fromOffset(0, shown == 0 and 100 or y)
+	local scope = homeFilter.cat == "All" and "All games" or homeFilter.cat
+	resultCount.Text = (shown == registryCount) and (scope .. " · " .. tostring(shown))
+		or (scope .. " · " .. tostring(shown) .. " of " .. tostring(registryCount))
+end
+do
+	local cats, counts = { "All" }, { All = registryCount }
+	for _, entry in ipairs(REGISTRY) do
+		local c = entry.cat or "Other"
+		if not counts[c] then cats[#cats + 1] = c end
+		counts[c] = (counts[c] or 0) + 1
+	end
+	local function paintChips()
+		for name, chip in pairs(homeFilter.chips) do
+			local on = name == homeFilter.cat
+			tween(chip, { BackgroundColor3 = on and C.accent or C.card,
+				TextColor3 = on and C.white or C.dim }, MOTION.fast)
+			chip:FindFirstChildOfClass("UIStroke").Color = on and C.accent or C.line
+		end
+	end
+	for i, name in ipairs(cats) do
+		local chip = mk("TextButton", {
+			Name = "R3ST_Chip_" .. name, LayoutOrder = i, Size = UDim2.fromOffset(0, 32),
+			AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = C.card, BorderSizePixel = 0,
+			AutoButtonColor = false, Font = FONT.bold, TextSize = 13, TextColor3 = C.dim,
+			RichText = true,
+			Text = name .. "  <font transparency=\"0.45\">" .. tostring(counts[name]) .. "</font>",
+		}, chipStrip)
+		round(chip, 16)
+		stroke(chip)
+		mk("UIPadding", { PaddingLeft = UDim.new(0, 14), PaddingRight = UDim.new(0, 14) }, chip)
+		homeFilter.chips[name] = chip
+		connect(chip.MouseEnter, function()
+			if homeFilter.cat ~= name then tween(chip, { TextColor3 = C.text }, MOTION.fast) end
+		end)
+		connect(chip.MouseLeave, paintChips)
+		connect(chip.Activated, function()
+			homeFilter.cat = (homeFilter.cat == name and name ~= "All") and "All" or name
+			paintChips()
+			refreshHomeList()
+			allList.CanvasPosition = Vector2.new()
+		end)
+	end
+	paintChips()
+end
+refreshHomeList()
+connect(search:GetPropertyChangedSignal("Text"), refreshHomeList)
+-- Enter launches the top match, so search works as a quick launcher.
+connect(search.FocusLost, function(enter)
+	if enter and search.Text ~= "" and homeFilter.first then
+		tryLaunch(homeFilter.first)
+	end
 end)
-
---==========================================================================
--- Favorites (real: rebuilt from state.favorites)
---==========================================================================
 local favPage = newPage("Favorites")
-label(favPage, "Favorites", UDim2.fromOffset(400,36), UDim2.fromOffset(24,24), 24, C.text, true)
-label(favPage, "Starred from the Home browser. The star persists in the hub config.",
-	UDim2.new(1,-48,0,20), UDim2.fromOffset(24,62), 12, C.dim)
-local favList = scrollList(favPage, UDim2.fromOffset(24,96), UDim2.new(1,-48,1,-120))
+pageHeader(favPage, "Favorites", "Starred games, saved in the hub config.")
+local favList = scrollList(favPage, UDim2.fromOffset(24, 96), UDim2.new(1, -48, 1, -120))
 rowRefresh.Favorites = function()
-	for _, child in ipairs(favList:GetChildren()) do child:Destroy() end
+	for _, child in ipairs(favList:GetChildren()) do
+		child:Destroy()
+	end
 	pruneConnections()
 	local y = 0
 	for _, entry in ipairs(REGISTRY) do
 		if state.favorites[entry.id] then
 			makeGameRow(favList, entry, y, -8)
-			y += 44
+			y += ROW_STEP
 		end
 	end
 	if y == 0 then
-		emptyState(favList, "Nothing starred yet", "Star any game on Home. Up to six session shortcuts keep your current game, favorites and recent launches close.")
+		emptyState(
+			favList, "Nothing starred yet",
+			"Star any game on Home. Up to six session shortcuts keep "
+				.. "your current game, favorites and recent launches close.",
+			"starOn"
+		)
 		y = 100
 	end
 	favList.CanvasSize = UDim2.fromOffset(0, y)
 end
 rowRefresh.Favorites()
-
---==========================================================================
--- Recent (real: persisted launch history)
---==========================================================================
 local recentPage = newPage("Recent")
-label(recentPage, "Recent", UDim2.fromOffset(400,36), UDim2.fromOffset(24,24), 24, C.text, true)
-label(recentPage, "The last 8 modules this hub actually loaded, newest first.",
-	UDim2.new(1,-48,0,20), UDim2.fromOffset(24,62), 12, C.dim)
-local recentList = scrollList(recentPage, UDim2.fromOffset(24,96), UDim2.new(1,-48,1,-160))
+pageHeader(recentPage, "Recent", "Last 8 successfully loaded modules, newest first.")
+local recentList = scrollList(recentPage, UDim2.fromOffset(24, 96), UDim2.new(1, -48, 1, -160))
 local function refreshRecent()
-	for _, child in ipairs(recentList:GetChildren()) do child:Destroy() end
+	for _, child in ipairs(recentList:GetChildren()) do
+		child:Destroy()
+	end
 	pruneConnections()
 	local y = 0
 	for _, id in ipairs(state.recent) do
 		local entry = entryById[id]
 		if entry then
 			makeGameRow(recentList, entry, y, -8)
-			y += 44
+			y += ROW_STEP
 		end
 	end
 	if y == 0 then
-		emptyState(recentList, "No launches recorded", "A module is added here the moment the hub successfully loads it — embedded or standalone.")
+		emptyState(
+			recentList, "No launches recorded",
+			"A module is added here the moment the hub successfully "
+				.. "loads it — embedded or standalone.",
+			"clock"
+		)
 		y = 100
 	end
 	recentList.CanvasSize = UDim2.fromOffset(0, y)
 end
 refreshRecent()
 rowRefresh.Recent = refreshRecent
-local clearRecent = button(recentPage, "Clear history", UDim2.fromOffset(160,34), UDim2.new(0,24,1,-52))
+local clearRecent =
+	button(recentPage, "Clear history", UDim2.fromOffset(160, 34), UDim2.new(0, 24, 1, -52))
 connect(clearRecent.Activated, function()
 	state.recent = {}
 	saveConfig(true)
 	refreshRecent()
 end)
-
---==========================================================================
--- Embedded module pages
---   One per embeddable target: the game for THIS place, plus Anims.
---   The host frame is what the module parents itself into.
---==========================================================================
 local function makeHostPage(name, entry, subtitle)
 	local p = newPage(name)
-	-- Compact strip: the module owns this page, so the hub's own title takes one
-	-- line and hands every remaining pixel to the host.
-	label(p, name, UDim2.fromOffset(300,20), UDim2.fromOffset(16,8), 14, C.text, true)
-	local status = label(p, subtitle or "", UDim2.new(1,-340,0,16), UDim2.fromOffset(16,26), 11, C.dim)
-	local reload = button(p, "Reload module", UDim2.fromOffset(130,24), UDim2.new(1,-146,0,10))
+	local status = pageHeader(p, name, subtitle, true)
+	status.Size = UDim2.new(1, -180, 0, 16)
+	local reload = button(p, "Reload module", UDim2.fromOffset(130, 26), UDim2.new(1, -146, 0, 9))
+	reload.TextSize = 13
 	reload.Name = "R3ST_Reload_" .. tostring(entry.id)
 	reload:SetAttribute("R3ST_Reload", tostring(entry.id))
-	-- Only place the host is built; every mount re-runs it, so a module that
-	-- destroys the hub's host self-heals instead of going invisible (hub S6.1b).
 	local host
 	local function ensureHost()
 		if host and host.Parent == p then return host end
 		local rebuild = host ~= nil
-		host = mk("Frame", { Name="R3ST_Host_" .. tostring(entry.id), Position=UDim2.fromOffset(8,46),
-			Size=UDim2.new(1,-16,1,-54), BackgroundTransparency=1, BorderSizePixel=0, ClipsDescendants=true }, p)
+		host = mk("Frame", {
+			Name = "R3ST_Host_" .. tostring(entry.id), Position = UDim2.fromOffset(8, 46),
+			Size = UDim2.new(1, -16, 1, -54), BackgroundTransparency = 1, BorderSizePixel = 0,
+			ClipsDescendants = true,
+		}, p)
 		host:SetAttribute("R3ST_Host", tostring(entry.id))
 		if hostPages[entry.id] then hostPages[entry.id].host = host end
-		if rebuild then hubLog("info", "host rebuilt for " .. tostring(entry.id) .. " (a module destroyed it)") end
+		if rebuild then
+			hubLog("info", "host rebuilt for " .. tostring(entry.id) .. " (a module destroyed it)")
+		end
 		return host
 	end
 	ensureHost()
 	p:SetAttribute("R3ST_HostPage", tostring(entry.id))
 	hostPages[entry.id] = { page = p, host = host, reload = reload, entry = entry }
-
-	-- Returns ok, err. The button ignores both; the reload API (.13) does not --
-	-- an agent that cannot tell a remount from a compile error will report a
-	-- broken build as shipped.
-
 	local function mount(force)
 		if mountedModules[entry.id] and not force then return true end
 		status.Text = "loading " .. entry.file .. "..."
 		status.TextColor3 = C.dim
 		local live = ensureHost()
 		local ok, err = runModule(entry, live, force and true or false)
-		connect(live.AncestryChanged, function()  -- orphaning is silent; say it
+		connect(live.AncestryChanged, function() -- orphaning is silent; say it
 			if not live:IsDescendantOf(game) and mountedModules[entry.id] then
-				hubLog("warn", "HOST ORPHANED for " .. tostring(entry.id) .. " -- UI invisible until remount")
+				hubLog(
+					"warn",
+					"HOST ORPHANED for " .. tostring(entry.id) .. " -- UI invisible until remount"
+				)
 			end
 		end)
 		if ok then
-			status.Text = entry.file .. " embedded · " .. (entry.desc or "")
-			status.TextColor3 = C.green
+			status.Text = "●  " .. entry.file .. " embedded · " .. (entry.desc or "")
+			status.TextColor3 = C.good
 			if rowRefresh.Recent then rowRefresh.Recent() end
 		else
 			status.Text = tostring(err)
 			status.TextColor3 = C.bad
-			emptyState(ensureHost(), "Could not load " .. entry.file, tostring(err) ..
-				"\nDeploy it to the Potassium Explorer folder, then press Reload module.")
+			emptyState(
+				ensureHost(),
+				"Could not load " .. entry.file,
+				tostring(err)
+					.. "\nDeploy it to the Potassium Explorer folder, then press Reload module."
+			)
 		end
 		return ok, err
 	end
@@ -1212,52 +1517,79 @@ local function makeHostPage(name, entry, subtitle)
 	end
 	return p, mount, host
 end
-
 local mountActiveGame
 if activeEntry and activeEntry.embed then
-	local _, mount = makeHostPage(activeEntry.name, activeEntry,
-		"This place matches " .. activeEntry.name .. " — its controls render inside the hub.")
+	local _, mount = makeHostPage(
+		activeEntry.name, activeEntry,
+		"This place matches " .. activeEntry.name .. " — its controls render inside the hub."
+	)
 	mountActiveGame = mount
 elseif activeEntry then
-	-- Identity matches but the module still owns its own shell. Say so plainly
-	-- rather than pretending it is embedded (hub skill S6).
 	local p = newPage(activeEntry.name)
-	label(p, activeEntry.name, UDim2.fromOffset(500,36), UDim2.fromOffset(24,24), 24, C.text, true)
-	label(p, activeEntry.desc or "", UDim2.new(1,-48,0,20), UDim2.fromOffset(24,62), 12, C.dim)
-	local note = label(p, "Not yet ported to the hub host — " .. activeEntry.file ..
-		" opens its own window. Closing the hub does not close it.", UDim2.new(1,-48,0,40), UDim2.fromOffset(24,92), 12, C.dim)
+	pageHeader(p, activeEntry.name, activeEntry.desc)
+	local note = label(
+		p,
+		"Not yet ported to the hub host — "
+			.. activeEntry.file
+			.. " opens its own window. Closing the hub does not close it.",
+		UDim2.new(1, -48, 0, 40), UDim2.fromOffset(24, 92), 13,
+		C.dim
+	)
 	note.TextWrapped = true
-	local st = label(p, "", UDim2.new(1,-48,0,20), UDim2.fromOffset(24,190), 12, C.dim)
-	local go = button(p, "Open " .. activeEntry.name, UDim2.fromOffset(200,38), UDim2.fromOffset(24,142))
-	local reload = button(p, "Reload module", UDim2.fromOffset(130,24), UDim2.new(1,-146,0,10))
+	local st = label(p, "", UDim2.new(1, -48, 0, 20), UDim2.fromOffset(24, 190), 13, C.dim)
+	local go =
+		button(p, "Open " .. activeEntry.name, UDim2.fromOffset(200, 38), UDim2.fromOffset(24, 142))
+	local reload = button(p, "Reload module", UDim2.fromOffset(130, 24), UDim2.new(1, -146, 0, 10))
 	reload.Name = "R3ST_Reload_" .. tostring(activeEntry.id)
 	reload:SetAttribute("R3ST_Reload", tostring(activeEntry.id))
 	local function launch()
 		local ok, err = runModule(activeEntry, nil)
 		st.Text = ok and (activeEntry.file .. " loaded") or tostring(err)
-		st.TextColor3 = ok and C.green or C.bad
+		st.TextColor3 = ok and C.good or C.bad
 		if ok and rowRefresh.Recent then rowRefresh.Recent() end
 	end
 	connect(go.Activated, launch)
 	connect(reload.Activated, launch)
 end
-
 local animsEntry = GENERAL[1]
-local _, mountAnims = makeHostPage("Anims", animsEntry, "Animation packs from the M7 capture. Backend unchanged; frontend is the hub's.")
-
--- Admin keeps its own command bar by contract (hub skill S7) -- a launcher page,
--- not a fake panel. Declared above the block so the autostart pass at the bottom
--- can call it -- a forward reference compiles and then dies on first use.
+local _, mountAnims = makeHostPage(
+	"Anims", animsEntry,
+	"Animation packs from the M7 capture. Backend unchanged; frontend is the hub's."
+)
 local launchAdmin
 do
 	local p = newPage("Admin")
-	label(p, "Admin", UDim2.fromOffset(400,36), UDim2.fromOffset(24,24), 24, C.text, true)
-	local d = label(p, "The ] command bar with inline completion. It is a bar, not a panel — the hub does not wrap it.",
-		UDim2.new(1,-48,0,40), UDim2.fromOffset(24,62), 12, C.dim)
-	d.TextWrapped = true
-	local st = label(p, "", UDim2.new(1,-48,0,20), UDim2.fromOffset(24,168), 12, C.dim)
-	local go = button(p, "Open command bar", UDim2.fromOffset(200,38), UDim2.fromOffset(24,120))
-	local reload = button(p, "Reload Admin", UDim2.fromOffset(130,24), UDim2.new(1,-146,0,10))
+	pageHeader(p, "Admin", "The ] command bar with inline completion.")
+	local body = scrollList(p, UDim2.fromOffset(24, 96), UDim2.new(1, -48, 1, -120))
+	local panel = card(body, UDim2.new(1, -8, 0, 226))
+	local tile = mk("Frame", {
+		Size = UDim2.fromOffset(44, 44), Position = UDim2.fromOffset(16, 16),
+		BackgroundColor3 = C.accentSoft, BorderSizePixel = 0,
+	}, panel)
+	round(tile, 11)
+	icon(tile, "terminal", 22, C.accentText, UDim2.fromScale(0.5, 0.5), Vector2.new(0.5, 0.5))
+	label(panel, "Command bar", UDim2.new(1, -150, 0, 22),
+		UDim2.fromOffset(74, 16), 15, C.text, true)
+	local desc = label(panel, "Run commands with inline completion. Press ] to open the bar.",
+		UDim2.new(1, -150, 0, 20), UDim2.fromOffset(74, 38), 13, C.dim)
+	desc.TextTruncate = Enum.TextTruncate.AtEnd
+	-- Keycap: the one shortcut this page exists to teach.
+	local cap = mk("TextLabel", {
+		Size = UDim2.fromOffset(30, 30), Position = UDim2.new(1, -46, 0, 22),
+		BackgroundColor3 = C.row, BorderSizePixel = 0, Text = "]", TextColor3 = C.text,
+		Font = FONT.mono, TextSize = 15,
+	}, panel)
+	round(cap, 7)
+	local capEdge = stroke(cap)
+	capEdge.Color = C.lineStrong
+	local go = primaryButton(panel, "Open command bar",
+		UDim2.new(0.6, -22, 0, 36), UDim2.fromOffset(16, 80))
+	local reload = button(panel, "Reload Admin",
+		UDim2.new(0.4, -18, 0, 36), UDim2.new(0.6, 2, 0, 80))
+	local st = label(panel, "Ready to open. Admin starts only when requested.",
+		UDim2.new(1, -32, 0, 34), UDim2.fromOffset(16, 128), 13, C.dim)
+	st.TextWrapped = true
+	body.CanvasSize = UDim2.fromOffset(0, 238)
 	reload.Name = "R3ST_Reload_admin"
 	reload:SetAttribute("R3ST_Reload", "admin")
 	function launchAdmin(force)
@@ -1281,8 +1613,10 @@ do
 			repeat
 				local admin = G.Admin
 				if type(admin) == "table" and admin._ready == true then
-					st.Text = "Admin " .. tostring(admin.build or "unknown build") .. " ready — press ]"
-					st.TextColor3 = C.green
+					st.Text = "Admin "
+						.. tostring(admin.build or "unknown build")
+						.. " ready — press ]"
+					st.TextColor3 = C.good
 					return
 				end
 				task.wait(0.25)
@@ -1294,183 +1628,229 @@ do
 		end)
 		return true
 	end
-	connect(go.Activated, function()
-		launchAdmin(false)
-	end)
-	connect(reload.Activated, function()
-		launchAdmin(true)
-	end)
-	label(p, "Backend is internal/admin_core.lua. Never autoexec it in Critical Strike.",
-		UDim2.new(1,-48,0,20), UDim2.fromOffset(24,204), 11, C.dim)
+	connect(go.Activated, function() launchAdmin(false) end)
+	connect(reload.Activated, function() launchAdmin(true) end)
+	-- Safety note in its own warm strip so it is read, not skimmed past.
+	local warnStrip = mk("Frame", {
+		Size = UDim2.new(1, -32, 0, 30), Position = UDim2.fromOffset(16, 178),
+		BackgroundColor3 = C.row, BorderSizePixel = 0,
+	}, panel)
+	round(warnStrip, 8)
+	mk("Frame", {
+		Size = UDim2.new(0, 3, 1, -12), Position = UDim2.fromOffset(6, 6),
+		BackgroundColor3 = C.warn, BorderSizePixel = 0,
+	}, warnStrip)
+	label(
+		warnStrip, "Critical Strike: open manually; never autoexec Admin.",
+		UDim2.new(1, -24, 1, 0), UDim2.fromOffset(18, 0), 13,
+		C.text
+	)
 end
-
---==========================================================================
--- Settings
---==========================================================================
 local settings = newPage("Settings")
-label(settings,"Settings",UDim2.fromOffset(400,36),UDim2.fromOffset(24,20),24,C.text,true)
-local settingsScroll = scrollList(settings, UDim2.fromOffset(24,68), UDim2.new(1,-48,1,-92))
-local settingsCard = mk("Frame",{Size=UDim2.new(1,-8,0,10),BackgroundColor3=C.raised,BorderSizePixel=0},settingsScroll)
-round(settingsCard,8); stroke(settingsCard)
--- Palette changes are limited to UI descendants; never recolor gameplay layers.
+pageHeader(settings, "Settings", "Appearance and shared configuration policy.")
+local settingsScroll =
+	scrollList(settings, UDim2.fromOffset(SPACE.xl, 96), UDim2.new(1, -2 * SPACE.xl, 1, -120))
 local function applyTheme(name)
-	local tones = ({ Midnight={9,20,30,40,58}, Slate={20,31,43,55,78}, Carbon={14,25,36,47,68} })[name]
-	if not tones then name = "Midnight"; tones = {9,20,30,40,58} end
+	-- RGB ladders: bg, panel, raised, row, line, rowHover, lineSoft, lineStrong.
+	-- Midnight is the kit's own cool graphite; Slate leans blue; Carbon is neutral.
+	local LADDERS = {
+		Midnight = { { 9, 9, 13 }, { 17, 17, 23 }, { 26, 26, 35 }, { 37, 37, 49 }, { 50, 50, 66 },
+			{ 49, 49, 64 }, { 36, 36, 48 }, { 86, 88, 112 } },
+		Slate = { { 16, 19, 26 }, { 24, 28, 38 }, { 33, 38, 51 }, { 44, 50, 66 }, { 60, 68, 88 },
+			{ 56, 64, 83 }, { 42, 48, 63 }, { 98, 108, 136 } },
+		Carbon = { { 10, 10, 10 }, { 19, 19, 19 }, { 28, 28, 28 }, { 39, 39, 39 }, { 54, 54, 54 },
+			{ 51, 51, 51 }, { 37, 37, 37 }, { 92, 92, 92 } },
+	}
+	local ladder = LADDERS[name]
+	if not ladder then
+		name = "Midnight"
+		ladder = LADDERS.Midnight
+	end
+	local function rgb(t) return Color3.fromRGB(t[1], t[2], t[3]) end
 	local old, nextPalette = {}, {}
-	for k,v in pairs(C) do old[k] = v; nextPalette[k] = v end
-	for i,k in ipairs({"bg","panel","raised","row","line"}) do
-		local n = tones[i]
-		nextPalette[k] = Color3.fromRGB(n,n,n)
+	for k, v in pairs(C) do
+		old[k] = v
+		nextPalette[k] = v
+	end
+	for i, k in ipairs({ "bg", "panel", "raised", "row", "line", "rowHover", "lineSoft",
+		"lineStrong" }) do
+		nextPalette[k] = rgb(ladder[i])
 	end
 	nextPalette.card = nextPalette.raised
-	nextPalette.lineSoft = nextPalette.row
 	nextPalette.hover = nextPalette.row
-	nextPalette.rowHover = Color3.fromRGB(tones[4]+10,tones[4]+10,tones[4]+10)
-	-- Match current colors, not initial colors: preserve ON/error/selected states.
-	for _,obj in ipairs(root:GetDescendants()) do
-		for _,prop in ipairs({"BackgroundColor3","TextColor3","PlaceholderColor3","ImageColor3","ScrollBarImageColor3","Color"}) do
-			local ok,value = pcall(function() return obj[prop] end)
+	for _, obj in ipairs(root:GetDescendants()) do
+		for _, prop in ipairs({
+			"BackgroundColor3", "TextColor3", "PlaceholderColor3", "ImageColor3",
+			"ScrollBarImageColor3",
+			"Color",
+		}) do
+			local ok, value = pcall(function() return obj[prop] end)
 			if ok and typeof(value) == "Color3" then
-				for _,key in ipairs({"bg","panel","raised","card","row","line","lineSoft","hover","rowHover"}) do
-					if old[key] == value then obj[prop] = nextPalette[key]; break end
+				for _, key in ipairs({
+					"bg", "panel", "raised", "card", "row", "line", "lineSoft", "hover", "rowHover",
+					"lineStrong",
+				}) do
+					if old[key] == value then
+						obj[prop] = nextPalette[key]
+						break
+					end
 				end
 			end
 		end
 	end
-	for k,v in pairs(nextPalette) do C[k] = v end
+	for k, v in pairs(nextPalette) do
+		C[k] = v
+	end
 	root.BackgroundColor3 = C.bg
 	state.theme = name
 end
-local function settingToggle(text,get,set,y)
-	label(settingsCard,text,UDim2.new(1,-118,0,30),UDim2.fromOffset(16,y),13,C.text,true)
-	local b=button(settingsCard,get() and "ON" or "OFF",UDim2.fromOffset(70,28),UDim2.new(1,-86,0,y+1))
-	local function paintState()
-		tween(b, { TextColor3 = get() and C.text or C.dim }, MOTION.fast)
-	end
-	paintState()
-	connect(b.Activated,function()
-		set(not get())
-		b.Text=get() and "ON" or "OFF"
-		paintState()
-		saveConfig(true)
-	end)
-end
-label(settingsCard,"APPEARANCE",UDim2.fromOffset(300,22),UDim2.fromOffset(16,14),11,C.dim,true)
-do
-	local choices = {}
-	local function paint()
-		for name,b in pairs(choices) do
-			b.Text = name .. (state.theme == name and " · Active" or "")
-			b.BackgroundColor3 = state.theme == name and C.row or C.panel
+if UIKit then
+	local widgets = UIKit.bind({
+		conns = connections, live = {}, cfg = state,
+		isVisible = function() return UIKit.isVisible(settingsScroll) end,
+		save = function()
+			if alive then saveConfig(true) end
+		end,
+	})
+	widgets.page(settingsScroll, { width = CONTENT_W - 2 * SPACE.xl, columns = 1 })
+	widgets.section(settingsScroll, "Appearance")
+	local themeRow = widgets.note(settingsScroll, "")
+	local segments = widgets.segmented(themeRow, {
+		names = { "Midnight", "Slate", "Carbon" },
+		get = function() return state.theme end,
+		set = function(name)
+			applyTheme(name)
+			saveConfig(true)
+		end,
+	})
+	local index = 0
+	for _, child in ipairs(segments:GetChildren()) do
+		if child:IsA("TextButton") then
+			child.Position = UDim2.new(index / 3, 2, 0, 0)
+			child.Size = UDim2.new(1 / 3, -4, 0, 26)
+			index += 1
 		end
 	end
-	for i,name in ipairs({"Midnight","Slate","Carbon"}) do
-		local b = button(settingsCard,name,UDim2.new(1/3,-16,0,34),UDim2.new((i-1)/3,16,0,42))
-		choices[name] = b
-		connect(b.Activated,function() applyTheme(name); paint(); saveConfig(true) end)
+	widgets.slider(settingsScroll, {
+		label = "Blur strength", key = "blur", min = 0, max = 12, step = 1,
+		get = function() return state.blur end,
+		set = function(value)
+			state.blur = value
+			blur.Size = value
+			blur.Enabled = value > 0 and root.Visible and not root:GetAttribute("R3ST_Minimized")
+		end,
+	})
+	local rows = {
+		{
+			section = "Appearance", label = "Reduce motion", key = "reduceMotion",
+			desc = "Apply panels and switches instantly.",
+			apply = function(value) UIKit.reduceMotion = value end,
+		},
+		{
+			section = "Appearance", label = "Hide sidebar", key = "navHidden",
+			desc = "Give pages the full width. Ctrl+B or the menu button flips it.",
+			apply = function()
+				local toggle = header:FindFirstChild("ToggleNavigation")
+				if toggle then
+					toggle:SetAttribute("R3ST_Layout", (toggle:GetAttribute("R3ST_Layout") or 0) + 1)
+				end
+			end,
+		},
+		{
+			section = "Configuration", label = "Autosave", key = "autosave",
+			desc = "Hub and modules keep separate config files.",
+		},
+		{
+			section = "Configuration", label = "Auto-start Admin", key = "autoAdmin",
+			desc = "Start the command bar on inject. Critical Strike stays manual.",
+		},
+	}
+	local section = "Appearance"
+	for _, row in ipairs(rows) do
+		if row.section ~= section then
+			section = row.section
+			widgets.section(settingsScroll, section)
+		end
+		local box = widgets.toggle(
+			settingsScroll,
+			{ label = row.label, desc = row.desc, key = row.key, set = row.apply }
+		)
+		for _, child in ipairs(box:GetChildren()) do
+			if child:IsA("TextLabel") and child.Text == row.label then
+				child.TextColor3 = C.text
+				connect(child:GetPropertyChangedSignal("TextColor3"), function()
+					if child.TextColor3 ~= C.text then child.TextColor3 = C.text end
+				end)
+			end
+		end
 	end
-	paint()
+	widgets.note(settingsScroll, "Matching game modules open automatically on every inject.")
+	widgets.button(
+		settingsScroll, "Save configuration", "Save hub settings now.",
+		function() saveConfig(true) end,
+		true
+	)
+	widgets.button(settingsScroll, "Reset hub layout", "Reset window size and position.", function()
+		state.windowX, state.windowY = 0, 0
+		root.Position = UDim2.fromScale(0.5, 0.5)
+		root.Size = UDim2.fromOffset(W_DEFAULT, H_DEFAULT)
+		fit()
+		state.windowW, state.windowH = root.Size.X.Offset, root.Size.Y.Offset
+		saveConfig(true)
+	end, true)
+else
+	emptyState(settingsScroll, "UI kit unavailable", "Restore r3st_ui.lua to edit hub settings.")
+	settingsScroll.CanvasSize = UDim2.fromOffset(0, 100)
 end
-label(settingsCard,"Blur strength",UDim2.fromOffset(200,24),UDim2.fromOffset(16,84),13,C.text,true)
-local blurDown=iconButton(settingsCard,"minus","−",UDim2.fromOffset(36,28),UDim2.fromOffset(180,82))
-local blurValue=mk("TextBox", {Text=tostring(state.blur),Size=UDim2.fromOffset(48,28),
-	Position=UDim2.fromOffset(218,82),BackgroundColor3=C.bg,TextColor3=C.text,
-	BorderSizePixel=0,Font=Enum.Font.GothamMedium,TextSize=13,ClearTextOnFocus=false},settingsCard)
-round(blurValue,6); stroke(blurValue)
-local blurUp=iconButton(settingsCard,"plus","+",UDim2.fromOffset(36,28),UDim2.fromOffset(270,82))
-local function alterBlur(d)
-	state.blur=math.clamp(state.blur+d,0,12)
-	blur.Size=state.blur
-	blurValue.Text=tostring(state.blur)
-	saveConfig(true)
-end
-connect(blurValue.FocusLost,function()
-	local n = tonumber(blurValue.Text)
-	if n and n == n and math.abs(n) < math.huge then alterBlur(math.floor(n + .5) - state.blur)
-	else blurValue.Text = tostring(state.blur) end
-end)
-connect(blurValue.InputBegan,function(input)
-	if input.KeyCode == Enum.KeyCode.Up then alterBlur(1)
-	elseif input.KeyCode == Enum.KeyCode.Down then alterBlur(-1) end
-end)
-connect(blurDown.Activated,function()alterBlur(-1)end)
-connect(blurUp.Activated,function()alterBlur(1)end)
-settingToggle("Reduce motion", function() return state.reduceMotion == true end, function(v)
-	state.reduceMotion = v
-	if UIKit then UIKit.reduceMotion = v end
-end, 116)
-label(settingsCard,"Panels and switches apply instantly instead of easing. Nothing else changes.",
-	UDim2.new(1,-32,0,28), UDim2.fromOffset(16,146), 11, C.dim).TextWrapped = true
-
-label(settingsCard,"CONFIGURATION",UDim2.fromOffset(300,22),UDim2.fromOffset(16,132+46),11,C.dim,true)
-settingToggle("Autosave", function() return state.autosave end, function(v) state.autosave = v end, 160+46)
-label(settingsCard, "Applies to the hub and to every module it loads — each keeps its own config file.",
-	UDim2.new(1,-32,0,32), UDim2.fromOffset(16,236), 11, C.dim).TextWrapped = true
-label(settingsCard, "Matching game modules open automatically on every inject.",
-	UDim2.new(1,-32,0,32), UDim2.fromOffset(16,272), 11, C.dim).TextWrapped = true
-
-settingToggle("Auto-start Admin", function() return state.autoAdmin ~= false end,
-	function(v) state.autoAdmin = v end, 308)
-local settingY = 352
-local saveNow=button(settingsCard,"Save configuration",UDim2.new(.5,-24,0,34),UDim2.fromOffset(16,settingY))
-connect(saveNow.Activated,function()
-	saveConfig(true)
-	saveNow.Text="Saved"
-	task.delay(1,function() if alive then saveNow.Text="Save configuration" end end)
-end)
-local resetUi=button(settingsCard,"Reset hub layout",UDim2.new(.5,-24,0,34),UDim2.new(.5,8,0,settingY))
-connect(resetUi.Activated,function()
-	state.windowX=0; state.windowY=0
-	state.windowW=W_DEFAULT; state.windowH=H_DEFAULT
-	root.Position=UDim2.fromScale(.5,.5)
-	root.Size = UDim2.fromOffset(W_DEFAULT, H_DEFAULT)
-	fit()
-	state.windowW, state.windowH = root.Size.X.Offset, root.Size.Y.Offset
-	saveConfig(true)
-end)
-label(settingsCard,"Resets the hub window position and size. It never touches a module's own config file.",
-	UDim2.new(1,-32,0,36),UDim2.fromOffset(16,settingY+44),11,C.dim).TextWrapped = true
-settingsCard.Size = UDim2.new(1,-8,0,settingY+92)
-settingsScroll.CanvasSize = UDim2.fromOffset(0, settingY+100)
-
---==========================================================================
--- About
---==========================================================================
 local about = newPage("About")
-label(about,"About",UDim2.fromOffset(400,36),UDim2.fromOffset(24,24),24,C.text,true)
+pageHeader(about, "About")
+local aboutBody =
+	scrollList(about, UDim2.fromOffset(SPACE.xl, 72), UDim2.new(1, -2 * SPACE.xl, 1, -96))
 do
 	local facts = {
 		{ "Hub build", BUILD_VERSION },
 		{ "This PlaceId", tostring(game.PlaceId) },
-		{ "Matched module", activeEntry and (activeEntry.name .. "  ·  " .. activeEntry.file) or "none — browser is inert here" },
+		{
+			"Matched module",
+			activeEntry and (activeEntry.name .. "  ·  " .. activeEntry.file)
+				or "none — browser is inert here",
+		},
 		{ "Registry", tostring(registryCount) .. " games · Admin + Anims general tools" },
-		{ "Embedded here", (activeEntry and activeEntry.embed) and "yes (renders in this window)" or "no (module opens standalone)" },
+		{
+			"Embedded here",
+			(activeEntry and activeEntry.embed) and "yes (renders in this window)"
+				or "no (module opens standalone)",
+		},
 		{ "Config", CONFIG_FILE },
 		{ "Log", "logs/rbx_hub.log" },
 		{ "Keys", "RightShift show/hide  ·  K unload hub and any embedded module" },
 		{ "Posture", "Rung 2 — client-created UI only. No remotes, no game state." },
 	}
-	local y = 72
+	local y = 0
 	for _, f in ipairs(facts) do
-		label(about, f[1], UDim2.fromOffset(180,22), UDim2.fromOffset(24,y), 12, C.dim, true)
-		local v = label(about, f[2], UDim2.new(1,-240,0,22), UDim2.fromOffset(200,y), 12, C.text)
+		label(aboutBody, f[1], UDim2.fromOffset(180, 22), UDim2.fromOffset(0, y), 14, C.dim, true)
+		local v =
+			label(aboutBody, f[2], UDim2.new(1, -176, 0, 22), UDim2.fromOffset(176, y), 14, C.text)
 		v.TextTruncate = Enum.TextTruncate.AtEnd
 		y += 28
 	end
-	label(about, "Modules stay separate files in git; the hub is one entry point, not one implementation file.",
-		UDim2.new(1,-48,0,20), UDim2.fromOffset(24,y+12), 11, C.dim)
-
-	-- LIVE status, not the boot snapshot above it. hubStatus() already knew every
-	-- mounted module and its build stamp and nothing ever showed it, so About was
-	-- half an empty page while the answer to "which code is actually running"
-	-- sat one function call away.
-	local statusBox = mk("TextLabel", {
-		BackgroundColor3 = C.bg, BorderSizePixel = 0,
-		Position = UDim2.fromOffset(24, y + 40), Size = UDim2.new(1, -48, 0, 108),
-		Font = Enum.Font.Code, TextSize = 11, TextColor3 = C.dim, Text = "",
-		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Top,
-	}, about)
-	round(statusBox, 8); stroke(statusBox); pad(statusBox, 10)
+	label(
+		aboutBody,
+		"Modules stay separate files in git; the hub is one "
+			.. "entry point, not one implementation file.",
+		UDim2.new(1, -8, 0, 20), UDim2.fromOffset(0, y + 12), 12,
+		C.dim
+	)
+	local statusPanel = mk("Frame", {
+		BackgroundColor3 = C.bg, BorderSizePixel = 0, Position = UDim2.fromOffset(0, y + 40),
+		Size = UDim2.new(1, -8, 0, 108),
+	}, aboutBody)
+	round(statusPanel, 10)
+	stroke(statusPanel)
+	local statusBox = label(statusPanel, "", UDim2.new(1, -24, 1, -24),
+		UDim2.fromOffset(12, 12), 13, C.dim)
+	statusBox.Font = FONT.mono
+	statusBox.TextYAlignment = Enum.TextYAlignment.Top
 	local function refreshStatus()
 		local api = G[GKEY]
 		if not (api and type(api.status) == "function") then
@@ -1480,26 +1860,37 @@ do
 		local ok, text = pcall(api.status)
 		statusBox.Text = (ok and tostring(text)) or "status unavailable"
 	end
-	local refreshBtn = button(about, "Refresh status", UDim2.fromOffset(150,30), UDim2.fromOffset(24, y + 156))
+	local refreshBtn =
+		button(aboutBody, "Refresh status", UDim2.fromOffset(150, 30), UDim2.fromOffset(0, y + 156))
 	connect(refreshBtn.Activated, refreshStatus)
-	local copyBtn = button(about, "Copy status", UDim2.fromOffset(140,30), UDim2.fromOffset(184, y + 156))
+	local copyBtn =
+		button(aboutBody, "Copy status", UDim2.fromOffset(140, 30), UDim2.fromOffset(160, y + 156))
 	connect(copyBtn.Activated, function()
 		if type(setclipboard) == "function" then
 			pcall(setclipboard, statusBox.Text)
 			copyBtn.Text = "Copied"
-			task.delay(1, function() if alive then copyBtn.Text = "Copy status" end end)
+			task.delay(1, function()
+				if alive then copyBtn.Text = "Copy status" end
+			end)
 		else
 			copyBtn.Text = "No clipboard"
 		end
 	end)
-	task.defer(function() if alive then refreshStatus() end end)
+	task.defer(function()
+		if alive then refreshStatus() end
+	end)
 	y = y + 196
-
-	-- Send report (.19). Consent only: nothing leaves this machine unless the
-	-- person here presses this, and the line below says exactly what goes.
-	local send = button(about, "Send report to the developer", UDim2.fromOffset(260,30), UDim2.fromOffset(24, y+42))
-	local result = label(about, "Sends your Roblox UserId, the build stamps, this PlaceId and the tail of your hub/module logs. Nothing else.",
-		UDim2.new(1,-320,0,30), UDim2.fromOffset(296, y+42), 11, C.dim)
+	local send = primaryButton(
+		aboutBody, "Send report to the developer", UDim2.fromOffset(260, 32),
+		UDim2.fromOffset(0, y + 8)
+	)
+	local result = label(
+		aboutBody,
+		"Sends your Roblox UserId, the build stamps, this PlaceId "
+			.. "and the tail of your hub/module logs. Nothing else.",
+		UDim2.new(1, -8, 0, 30), UDim2.fromOffset(0, y + 46), 12,
+		C.dim
+	)
 	result.TextWrapped = true
 	connect(send.Activated, function()
 		result.Text = "sending..."
@@ -1509,96 +1900,114 @@ do
 				result.Text = "report unavailable in this build"
 				return
 			end
-			local ok, msg = api.report(tostring(game.Players.LocalPlayer and game.Players.LocalPlayer.UserId or "friend"))
+			local ok, msg = api.report(
+				tostring(game.Players.LocalPlayer and game.Players.LocalPlayer.UserId or "friend")
+			)
 			result.Text = (ok and "sent — thank you. " or "could not send — ") .. tostring(msg)
 		end)
 	end)
+	aboutBody.CanvasSize = UDim2.fromOffset(0, y + 100)
 end
-
---==========================================================================
--- Sidebar navigation (built last: the game tab only exists if it matched)
---==========================================================================
 do
-	-- Icon NAMES now, not glyphs (hub skill S9.3). Every one of the characters
-	-- that used to sit in this table was a tofu box on the user's screen.
+	-- Each group opens with a small-caps heading instead of a bare rule, so the
+	-- sidebar reads as Playing / Library / Tools / Hub at a glance.
 	if activeEntry then
-		navOrder[#navOrder+1] = { "dot", activeEntry.name }
-		navOrder[#navOrder+1] = { "", "-" }
+		navOrder[#navOrder + 1] = { "", "-", "PLAYING" }
+		navOrder[#navOrder + 1] = { "dot", activeEntry.name }
 	end
-	navOrder[#navOrder+1] = { "home", "Home" }
-	navOrder[#navOrder+1] = { "starOn", "Favorites" }
-	navOrder[#navOrder+1] = { "clock", "Recent" }
-	navOrder[#navOrder+1] = { "", "-" }
-	navOrder[#navOrder+1] = { "terminal", "Admin" }
-	navOrder[#navOrder+1] = { "anims", "Anims" }
-	navOrder[#navOrder+1] = { "", "-" }
-	navOrder[#navOrder+1] = { "gear", "Settings" }
-	navOrder[#navOrder+1] = { "info", "About" }
-
-	local y = 12
+	for _, group in ipairs({
+		{ "LIBRARY", { "home", "Home" }, { "starOn", "Favorites" }, { "clock", "Recent" } },
+		{ "TOOLS", { "terminal", "Admin" }, { "anims", "Anims" } },
+		{ "HUB", { "gear", "Settings" }, { "info", "About" } },
+	}) do
+		navOrder[#navOrder + 1] = { "", "-", group[1] }
+		for i = 2, #group do
+			navOrder[#navOrder + 1] = group[i]
+		end
+	end
+	local y = 6
+	local glide = mk("Frame", {
+		Name = "R3ST_NavGlide", Size = UDim2.new(1, -18, 0, 40), Position = UDim2.fromOffset(9, 0),
+		BackgroundColor3 = C.accentSoft, BorderSizePixel = 0, Visible = false, ZIndex = 1,
+	}, sidebar)
+	round(glide, 9)
+	round(mk("Frame", {
+		Name = "R3ST_GlideBar", BackgroundColor3 = C.accent, BorderSizePixel = 0,
+		AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0),
+		Size = UDim2.new(0, 3, 0, 20), ZIndex = 1,
+	}, glide), 2)
 	for _, item in ipairs(navOrder) do
 		if item[2] == "-" then
-			divider(sidebar, y + 5)
-			y += 12
+			local heading = label(sidebar, item[3] or "", UDim2.new(1, -40, 0, 16),
+				UDim2.fromOffset(20, y + 12), 11, C.faint, true)
+			heading.Name = "R3ST_NavHeading"
+			y += 34
 		else
-			local b = mk("TextButton", { Size=UDim2.new(1,-18,0,34), Position=UDim2.fromOffset(9,y), BackgroundColor3=C.panel,
-				BorderSizePixel=0, Text="", TextColor3=C.dim, Font=Enum.Font.GothamMedium, TextSize=13,
-				TextXAlignment=Enum.TextXAlignment.Left, AutoButtonColor=false }, sidebar)
-			round(b,7)
-			-- The label is its own TextLabel now: the icon is an Instance, so it can
-			-- no longer be concatenated into the button's Text. Left inset 34 keeps
-			-- the text column exactly where the glyph version put it.
-			local navIcon = icon(b, item[1], 15, C.dim, UDim2.new(0,11,0.5,0), Vector2.new(0,0.5))
-			local navText = label(b, item[2], UDim2.new(1,-42,1,0), UDim2.fromOffset(34,0), 13, C.dim)
+			local b = mk("TextButton", {
+				Size = UDim2.new(1, -18, 0, 40), Position = UDim2.fromOffset(9, y),
+				BackgroundColor3 = C.panel,
+				BorderSizePixel = 0, Text = "", TextColor3 = C.dim, Font = FONT.semi,
+				TextSize = 15, TextXAlignment = Enum.TextXAlignment.Left, AutoButtonColor = false,
+			}, sidebar)
+			round(b, 9)
+			local navIcon =
+				icon(b, item[1], 17, C.dim, UDim2.new(0, 12, 0.5, 0), Vector2.new(0, 0.5))
+			local navText =
+				label(b, item[2], UDim2.new(1, -46, 1, 0), UDim2.fromOffset(38, 0), 15, C.dim)
 			navText.TextYAlignment = Enum.TextYAlignment.Center
 			navText.TextTruncate = Enum.TextTruncate.AtEnd
 			navText.Active = false
-			if not navIcon then navText.Position = UDim2.fromOffset(11,0) end
+			if not navIcon then navText.Position = UDim2.fromOffset(11, 0) end
 			b:SetAttribute("R3ST_Nav", item[2])
 			navLabels[item[2]] = navText
 			navIcons[item[2]] = navIcon
-			-- Active marker, animated by setPage. Zero height when inactive.
-			mk("Frame", { Name="R3ST_Active", BackgroundColor3=C.white, BorderSizePixel=0,
-				AnchorPoint=Vector2.new(0,0.5), Position=UDim2.new(0,-6,0.5,0),
-				Size=UDim2.new(0,3,0,0) }, b)
-			-- The sidebar had NO hover state at all, on the control the user
-			-- touches most. Hover only when this row is not already the page.
-			connect(b.MouseEnter, function()
-				if state.page ~= item[2] then tween(b, { BackgroundColor3 = C.rowHover or C.hover }, MOTION.fast) end
-			end)
-			connect(b.MouseLeave, function()
-				if state.page ~= item[2] then tween(b, { BackgroundColor3 = C.panel }, MOTION.fast) end
-			end)
+			mk("Frame", {
+				Name = "R3ST_Active", BackgroundColor3 = C.accent, BorderSizePixel = 0,
+				AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, -6, 0.5, 0),
+				Size = UDim2.new(0, 3, 0, 0),
+			}, b)
+			round(b:FindFirstChild("R3ST_Active"), 2)
+			interactive(b, b, function() return state.page == item[2] and C.accentSoft or C.panel end, {
+				hover = function() return state.page == item[2] and C.accentSoft or C.row end,
+				edge = function() return C.line end,
+			})
 			navButtons[item[2]] = b
 			connect(b.Activated, function() setPage(item[2]) end)
-			y += 38
+			y += 44
 		end
 	end
-	-- Status follows navigation in the scroll canvas, never overlaps short windows.
-	mk("Frame", { Size=UDim2.new(1,-24,0,1), Position=UDim2.fromOffset(12,440), BackgroundColor3=C.line, BorderSizePixel=0 }, sidebar)
-	local dot = mk("Frame", { Size=UDim2.fromOffset(8,8), Position=UDim2.fromOffset(20,462), BackgroundColor3 = activeEntry and C.green or C.dim,
-		BorderSizePixel=0 }, sidebar)
+	mk("Frame", {
+		Size = UDim2.new(1, -24, 0, 1), Position = UDim2.fromOffset(SPACE.md, y + SPACE.md),
+		BackgroundColor3 = C.lineSoft, BorderSizePixel = 0,
+	}, sidebar)
+	local dot = mk("Frame", {
+		Size = UDim2.fromOffset(8, 8), Position = UDim2.fromOffset(20, y + 34),
+		BackgroundColor3 = activeEntry and C.good or C.faint, BorderSizePixel = 0,
+	}, sidebar)
 	round(dot, 4)
-	label(sidebar, activeEntry and "Module ready" or "No module here", UDim2.fromOffset(120,16), UDim2.fromOffset(36,458), 11,
-		activeEntry and C.green or C.dim)
-	label(sidebar, "build " .. BUILD_VERSION, UDim2.fromOffset(140,16), UDim2.fromOffset(20,480), 10, C.faint or C.dim)
+	label(
+		sidebar,
+		activeEntry and "Module ready" or "No module here",
+		UDim2.fromOffset(130, 18), UDim2.fromOffset(36, y + 29), 13,
+		activeEntry and C.good or C.dim, true
+	)
+	-- Shortcut legend: the hub's hotkeys are otherwise invisible.
+	local keys = label(
+		sidebar,
+		"Ctrl+B  sidebar\nCtrl+F  search\nRShift  hide hub",
+		UDim2.fromOffset(140, 50), UDim2.fromOffset(20, y + 54), 12,
+		C.dim
+	)
+	keys.TextYAlignment = Enum.TextYAlignment.Top
+	keys.LineHeight = 1.15
+	label(
+		sidebar,
+		"build " .. BUILD_VERSION,
+		UDim2.fromOffset(140, 16), UDim2.fromOffset(20, y + 110), 11,
+		C.faint or C.dim
+	).Font = FONT.mono
+	sidebar.CanvasSize = UDim2.fromOffset(0, y + 136)
 end
-
---==========================================================================
--- Anti-idle (ALWAYS ON — no toggle, by standing order)
---
--- Roblox kicks a client after ~20 minutes of zero input. Overnight autofarms
--- die to that, not to the game. Two client-local layers, both invisible to
--- game code and to the server:
---   1. Player.Idled -> VirtualUser:CaptureController() + ClickButton2.
---      VirtualUser is the engine's own input simulator; this is the canonical
---      counter and no game script can observe it (CLIENT INSPECTION=0 in the
---      Fisch dump; it is engine-internal regardless).
---   2. A periodic jittered pulse (every 5–8 min) so the idle clock resets
---      long before the Idled threshold even fires — layer 1 is the backstop.
--- No print/warn anywhere: games with LOG MONITORING read GetLogHistory(),
--- and this must be silent (hubLog writes to file only).
---==========================================================================
 do
 	local VirtualUser = game:GetService("VirtualUser")
 	local function pulse(reason)
@@ -1609,11 +2018,7 @@ do
 		end)
 	end
 	local LP = game:GetService("Players").LocalPlayer
-	if LP then
-		connect(LP.Idled, function()
-			pulse("idled")
-		end)
-	end
+	if LP then connect(LP.Idled, function() pulse("idled") end) end
 	task.spawn(function()
 		while alive do
 			task.wait(300 + math.random(0, 180)) -- 5-8 min, uneven
@@ -1623,52 +2028,19 @@ do
 	end)
 	hubLog("info", "anti-idle armed (always-on, no toggle)")
 end
-
---==========================================================================
--- Lifecycle
---==========================================================================
 destroy = function()
 	if not alive then return end
 	alive = false
 	unmountAll()
-	for _, c in ipairs(connections) do pcall(function() c:Disconnect() end) end
+	for _, c in ipairs(connections) do
+		pcall(function() c:Disconnect() end)
+	end
 	if screen then screen:Destroy() end
 	if blur then blur:Destroy() end
 	if G[GKEY] and G[GKEY].destroy == destroy then G[GKEY] = nil end
 	G[HOST_KEY] = nil
 end
---==========================================================================
--- Agent reload API (.13)
---
--- An agent already has a live Luau channel (the Potassium MCP server), but no
--- way to make the client pick up a file it just deployed -- so every iteration
--- ended with "re-inject and tell me what the log says". This closes that loop:
---
---   local H = getgenv().__R3ST_HUB
---   H.reload()          -- remount the module mounted right now
---   H.reload("blr")     -- ...or by id / file / display name
---   H.reload("hub")     -- reload hub.lua itself, in place
---   H.status()          -- what is mounted, and every live build stamp
---   H.targets()         -- what reload() will accept
---
--- Every call returns its result as a string AND writes it to
--- logs/r3st_reload.log, because read_console came back empty on a plain print
--- in live testing (potassium-mcp S2) and a reload you cannot confirm is worse
--- than no reload at all.
---
--- Reload reads from disk through loadModule, so it inherits the Explorer-first
--- path order (S11) -- the same resolution the user's own inject uses, not a
--- second one that could disagree.
---==========================================================================
 local RELOAD_LOG = "logs/r3st_reload.log"
-
--- APPEND, never overwrite. tools/reload.sh's own snippet runs H.reload(...) and
--- then H.status() in one call, and both used to writefile this same path -- so
--- status wiped the reload verdict before `reload.sh verify` could read it, and
--- verify's tail-grep for the build stamp then matched the stamp status prints
--- regardless of whether the remount actually succeeded. A FAILED reload verified
--- as PASS: the "reported a broken build as shipped" class, inside the one tool
--- built to prevent it.
 local function reloadWrite(text)
 	pcall(function()
 		if makefolder and isfolder and not isfolder("logs") then makefolder("logs") end
@@ -1679,13 +2051,11 @@ local function reloadWrite(text)
 		end
 	end)
 end
-
 local function reloadResult(text)
 	reloadWrite(("[%s] %s\n"):format(os.date("%H:%M:%S"), text))
 	hubLog("info", "reload: " .. text)
 	return text
 end
-
 local function reloadTargets()
 	local out = { "hub" }
 	for id in pairs(hostMounts) do
@@ -1694,53 +2064,59 @@ local function reloadTargets()
 	table.sort(out)
 	return out
 end
-
 local function reloadHub()
-	-- Compile the replacement BEFORE tearing anything down. A hub that unloads
-	-- itself and then fails to load its successor leaves the user with no UI and
-	-- no way back except a manual re-inject -- during a match, on the machine we
-	-- cannot reach. The new chunk's own header runs destroy() on us, so the
-	-- teardown happens only once the replacement is known to compile.
 	local chunk, err = loadModule("hub.lua")
 	if not chunk then
-		return reloadResult("FAILED hub: " .. tostring(err) .. " (still running " .. BUILD_VERSION .. ")")
+		return reloadResult(
+			"FAILED hub: " .. tostring(err) .. " (still running " .. BUILD_VERSION .. ")"
+		)
 	end
 	task.defer(function()
 		local ok, runErr = pcall(chunk)
 		if not ok then
-			pcall(writefile, RELOAD_LOG,
-				("[%s] FAILED hub runtime: %s\n"):format(os.date("%H:%M:%S"), tostring(runErr)))
+			pcall(
+				writefile, RELOAD_LOG,
+				("[%s] FAILED hub runtime: %s\n"):format(os.date("%H:%M:%S"), tostring(runErr))
+			)
 		end
 	end)
-	return reloadResult("OK hub reloading from disk (was " .. BUILD_VERSION .. "; read this file again for the new build)")
+	return reloadResult(
+		"OK hub reloading from disk (was "
+			.. BUILD_VERSION
+			.. "; read this file again for the new build)"
+	)
 end
-
 local function reloadModule(target)
 	local id = hostAlias[tostring(target):lower()]
 	local mount = id and hostMounts[id]
 	if not mount then
-		return reloadResult(("FAILED unknown target '%s' -- have: %s")
-			:format(tostring(target), table.concat(reloadTargets(), ", ")))
+		return reloadResult(
+			("FAILED unknown target '%s' -- have: %s"):format(
+				tostring(target),
+				table.concat(reloadTargets(), ", ")
+			)
+		)
 	end
 	local ran, ok, err = pcall(mount, true)
-	if not ran then
-		return reloadResult("FAILED " .. id .. " remount threw: " .. tostring(ok))
-	end
-	if not ok then
-		return reloadResult("FAILED " .. id .. ": " .. tostring(err))
-	end
+	if not ran then return reloadResult("FAILED " .. id .. " remount threw: " .. tostring(ok)) end
+	if not ok then return reloadResult("FAILED " .. id .. ": " .. tostring(err)) end
 	local entry = hostEntries[id]
 	local handle = entry and G[entry.gkey]
-	return reloadResult(("OK %s remounted from disk, build %s")
-		:format(id, (type(handle) == "table" and tostring(handle.build)) or "unreported"))
+	return reloadResult(
+		("OK %s remounted from disk, build %s"):format(
+			id,
+			(type(handle) == "table" and tostring(handle.build)) or "unreported"
+		)
+	)
 end
-
 local function hubStatus()
 	local lines = {
 		"hub build " .. BUILD_VERSION,
 		"mounted: " .. (function()
 			local names = {}
-			for id, rec in pairs(mountedModules) do names[#names + 1] = tostring(id) .. " / " .. rec.name end
+			for id, rec in pairs(mountedModules) do
+				names[#names + 1] = tostring(id) .. " / " .. rec.name
+			end
 			table.sort(names)
 			return #names > 0 and table.concat(names, ", ") or "none"
 		end)(),
@@ -1751,18 +2127,16 @@ local function hubStatus()
 		local entry = hostEntries[id]
 		if entry then
 			local handle = G[entry.gkey]
-			lines[#lines + 1] = ("  %s (%s) build %s")
-				:format(id, entry.file, (type(handle) == "table" and tostring(handle.build)) or "not loaded")
+			lines[#lines + 1] = ("  %s (%s) build %s"):format(
+				id, entry.file,
+				(type(handle) == "table" and tostring(handle.build)) or "not loaded"
+			)
 		end
 	end
 	local text = table.concat(lines, "\n")
 	reloadWrite(("[%s] status\n%s\n"):format(os.date("%H:%M:%S"), text))
 	return text
 end
-
--- Persistent, structured UI ownership for scripts/ui_assert.lua and live
--- tooling. Returning Instances is intentional: this table never leaves the
--- client, and exact ancestry/geometry cannot be verified from names or strings.
 local function hubInspect()
 	local targets = {}
 	for id, rec in pairs(hostPages) do
@@ -1775,105 +2149,71 @@ local function hubInspect()
 			end
 		end
 		targets[id] = {
-			id = id,
-			name = rec.entry and rec.entry.name or id,
+			id = id, name = rec.entry and rec.entry.name or id,
 			file = rec.entry and rec.entry.file or nil,
-			page = rec.page,
-			host = rec.host,
-			reload = rec.reload,
-			roots = roots,
+			page = rec.page, host = rec.host, reload = rec.reload, roots = roots,
 			mounted = mountedModules[id] ~= nil,
 			visible = rec.page and rec.page.Visible == true or false,
 		}
 	end
 	return {
-		contract = SHELL_CONTRACT,
-		kitContract = UIKit and tostring(UIKit.SHELL_CONTRACT) or nil,
-		kitVersion = UIKit and tostring(UIKit.VERSION) or nil,
-		build = BUILD_VERSION,
-		alive = alive,
-		page = state.page,
-		screen = screen,
-		root = root,
-		targets = targets,
+		contract = SHELL_CONTRACT, kitContract = UIKit and tostring(UIKit.SHELL_CONTRACT) or nil,
+		kitVersion = UIKit and tostring(UIKit.VERSION) or nil, build = BUILD_VERSION, alive = alive,
+		page = state.page, screen = screen, root = root, targets = targets,
 	}
 end
-
 local function reload(target)
-	if not alive then
-		return reloadResult("FAILED hub is unloaded - re-inject hub.lua")
-	end
+	if not alive then return reloadResult("FAILED hub is unloaded - re-inject hub.lua") end
 	local want = tostring(target or ""):lower()
-	if want == "hub" then
-		return reloadHub()
-	end
+	if want == "hub" then return reloadHub() end
 	if want == "" or want == "active" then
 		if not (lastMounted and lastMounted.id) then
-			return reloadResult("FAILED nothing mounted -- pass a target: " .. table.concat(reloadTargets(), ", "))
+			return reloadResult(
+				"FAILED nothing mounted -- pass a target: " .. table.concat(reloadTargets(), ", ")
+			)
 		end
 		return reloadModule(lastMounted.id)
 	end
 	return reloadModule(want)
 end
-
---==========================================================================
--- Report -- how a friend's broken session reaches us (.19)
---
--- When someone else runs the public loadstring, their logs are on THEIR disk
--- and every bug report is "it doesn't work" plus a guess. The receiver for this
--- has existed and been publicly reachable for a month (LXC104, Tailscale
--- Funnel) and had never received one line, because nothing on the client side
--- ever sent one. This is that half.
---
--- Consent, not telemetry: it sends only when a person presses the button, it
--- says exactly what it sends, and there is no timer and no automatic path.
--- Body = build stamps + place/universe + the tail of the hub log and the
--- mounted module's log. No account name is read, no token, no file outside
--- workspace/logs.
---
--- Read what came in with: bash tools/pull_friend_logs.sh
---==========================================================================
-local REPORT_URL = "https://discord-bot.tail380340.ts.net/ingest"
+-- An optional private destination is supplied locally through G.__R3ST_REPORT_URL.
+-- Never embed a private endpoint in the publicly mirrored source.
 local REPORT_TAIL = 24000 -- bytes per log; the receiver caps a post at 2 MB
-
 local function tailFile(path, n)
 	local ok, body = pcall(readfile, path)
-	if not ok or type(body) ~= "string" then
-		return ("(%s unreadable)"):format(path)
-	end
-	if #body > n then
-		body = "...(truncated)...\n" .. body:sub(#body - n)
-	end
+	if not ok or type(body) ~= "string" then return ("(%s unreadable)"):format(path) end
+	if #body > n then body = "...(truncated)...\n" .. body:sub(#body - n) end
 	return body
 end
-
 local function buildReport(note)
 	local parts = {
 		("== r3st report %s =="):format(os.date("%Y-%m-%d %H:%M:%S")),
 		("hub build : %s"):format(BUILD_VERSION),
 		("place     : %s   universe: %s"):format(tostring(game.PlaceId), tostring(game.GameId)),
-		("module    : %s"):format(activeEntry and (activeEntry.name .. " / " .. activeEntry.file) or "none"),
-		("executor  : %s"):format((identifyexecutor and select(1, pcall(identifyexecutor))) and identifyexecutor() or "unknown"),
+		("module    : %s"):format(
+			activeEntry and (activeEntry.name .. " / " .. activeEntry.file) or "none"
+		),
+		("executor  : %s"):format(
+			(identifyexecutor and select(1, pcall(identifyexecutor))) and identifyexecutor()
+				or "unknown"
+		),
 		("note      : %s"):format(note and note ~= "" and note or "(none given)"),
 		("status    : %s"):format(tostring(hubStatus())),
 		("mounted   : %s"):format((function()
 			local names = {}
-			for id in pairs(mountedModules) do names[#names + 1] = tostring(id) end
+			for id in pairs(mountedModules) do
+				names[#names + 1] = tostring(id)
+			end
 			table.sort(names)
 			return #names > 0 and table.concat(names, ", ") or "none"
 		end)()),
-		"", "---- logs/rbx_hub.log ----", tailFile("logs/rbx_hub.log", REPORT_TAIL),
+		"", "---- logs/rbx_hub.log ----",
+		tailFile("logs/rbx_hub.log", REPORT_TAIL),
 	}
-	-- The loader log first: someone running the public loadstring gets their
-	-- build from the release, so "which manifest did you actually fetch, and did
-	-- it verify" is the question their bug report has to answer. Without it a
-	-- stale-release report reads exactly like a code bug.
 	if isfile and isfile("logs/resthub_loader.log") then
 		parts[#parts + 1] = "---- logs/resthub_loader.log ----"
 		parts[#parts + 1] = tailFile("logs/resthub_loader.log", REPORT_TAIL)
 	end
-	-- Every mounted module's log, not just the game's: since .25 more than one
-	-- module is mounted at a time, and the broken one is often the other one.
 	local seen = {}
 	for id in pairs(mountedModules) do
 		local entry = hostEntries[id]
@@ -1893,27 +2233,27 @@ local function buildReport(note)
 	end
 	return table.concat(parts, "\n")
 end
-
--- Returns ok, message. Never raises: a failed report must not take the UI with
--- it, and the user is entitled to a reason rather than a silent no-op.
 local function sendReport(who, note)
 	local body = buildReport(note)
 	pcall(writefile, "logs/r3st_report_last.txt", body) -- always keep a local copy
+	local reportUrl = G.__R3ST_REPORT_URL
+	if type(reportUrl) ~= "string" or not reportUrl:match("^https://[^%s?#]+$") then
+		return false, "no private HTTPS report destination configured; "
+			.. "logs/r3st_report_last.txt was written instead"
+	end
 	local req = (syn and syn.request) or (http and http.request) or http_request or request
 	if type(req) ~= "function" then
-		return false, "this executor exposes no HTTP request function; logs/r3st_report_last.txt was written instead"
+		return false,
+			"this executor exposes no HTTP request function; "
+				.. "logs/r3st_report_last.txt was written instead"
 	end
 	who = (tostring(who or "friend"):gsub("[^%w%-_]", "")):sub(1, 24)
 	if who == "" then who = "friend" end
 	local ok, res = pcall(req, {
-		Url = REPORT_URL .. "?who=" .. who,
-		Method = "POST",
-		Headers = { ["Content-Type"] = "text/plain" },
-		Body = body,
+		Url = reportUrl .. "?who=" .. who, Method = "POST",
+		Headers = { ["Content-Type"] = "text/plain" }, Body = body,
 	})
-	if not ok then
-		return false, "send failed: " .. tostring(res)
-	end
+	if not ok then return false, "send failed: " .. tostring(res) end
 	local code = type(res) == "table" and (res.StatusCode or res.Status or 0) or 0
 	if code >= 200 and code < 300 then
 		hubLog("info", "report sent as " .. who .. " (" .. #body .. " bytes)")
@@ -1921,26 +2261,11 @@ local function sendReport(who, note)
 	end
 	return false, "receiver returned " .. tostring(code)
 end
-
 G[GKEY] = {
-	destroy = destroy,
-	build = BUILD_VERSION,
-	reload = reload,
-	status = hubStatus,
-	targets = reloadTargets,
-	inspect = hubInspect,
-	contract = SHELL_CONTRACT,
-	logFile = RELOAD_LOG,
-	report = sendReport,
-	reportPreview = buildReport,
+	destroy = destroy, build = BUILD_VERSION, reload = reload, status = hubStatus,
+	targets = reloadTargets, inspect = hubInspect, contract = SHELL_CONTRACT, logFile = RELOAD_LOG,
+	report = sendReport, reportPreview = buildReport,
 }
---==========================================================================
--- Resize + motion
---   The grip lives in the kit so every module window gets the same one. Pages
---   are rebuilt lazily, so a live resize only has to move the shell; the
---   two/three-column card grid inside a mounted module reflows through
---   Kit.relayout on its own next paint.
---==========================================================================
 if UIKit and UIKit.resizeGrip then
 	UIKit.resizeGrip(root, {
 		min = Vector2.new(MIN_W, MIN_H),
@@ -1951,82 +2276,81 @@ if UIKit and UIKit.resizeGrip then
 		end,
 	})
 end
-
--- Open/hide animation.
---
--- The open tween runs ONCE per inject, so it was never what the user actually
--- saw. RightShift is -- it is the show/hide they press all session, and it used
--- to set screen.Enabled with no transition at all. Both go through here now.
-local openScale = mk("UIScale", { Scale = 1 }, root)
-openScale:SetAttribute("R3ST_TargetScale", 1)
 local shown = true
-
 do
-	-- One owner for window motion. Rapid reversals cancel the previous animation
-	-- and invalidate its completion; a stale hide can never close a new show.
-	local revision, scaleTween, blurTween = 0, nil, nil
-	local service = game:GetService("TweenService")
+	local revision, motionTween, blurTween = 0, nil, nil
+	local rest = root.Position
 	toggleShown = function(force)
 		local want = force
 		if want == nil then want = not shown end
 		if want == shown then return end
+		if shown and (not motionTween or motionTween.PlaybackState ~= Enum.PlaybackState.Playing) then
+			rest = root.Position
+		end
 		shown = want
 		revision += 1
 		local ticket = revision
-		if scaleTween then scaleTween:Cancel() end
+		if motionTween then motionTween:Cancel() end
 		if blurTween then blurTween:Cancel() end
+		if want and not root.Visible then root.Position = rest + UDim2.fromOffset(0, 10) end
 		screen.Enabled = true
 		root.Visible = true
-		blur.Enabled = true
-		local duration = state.reduceMotion and 0 or (want and .14 or .10)
-		local targetScale = want and 1 or .96
+		blur.Enabled = state.blur > 0
+		local duration = (state.reduceMotion or (UIKit and UIKit.reduceMotion)) and 0
+			or (want and MOTION.base or MOTION.exit)
 		local targetBlur = (want and not root:GetAttribute("R3ST_Minimized")) and state.blur or 0
-		if duration == 0 then
-			openScale.Scale = targetScale
-			blur.Size = targetBlur
-		else
-			local info = TweenInfo.new(duration,Enum.EasingStyle.Quart,Enum.EasingDirection.Out)
-			scaleTween = service:Create(openScale,info,{Scale=targetScale})
-			blurTween = service:Create(blur,info,{Size=targetBlur})
-			scaleTween:Play(); blurTween:Play()
-		end
+		motionTween = tween(root, { Position = want and rest or rest + UDim2.fromOffset(0, 10) }, duration,
+			want and "out" or "in")
+		blurTween = tween(blur, { Size = targetBlur }, duration)
 		local function finish()
 			if not alive or revision ~= ticket then return end
 			screen.Enabled = want
 			root.Visible = want
-			blur.Enabled = want and not root:GetAttribute("R3ST_Minimized")
+			blur.Enabled = want and state.blur > 0 and not root:GetAttribute("R3ST_Minimized")
 		end
-		if duration == 0 then finish() else task.delay(duration,finish) end
+		if duration == 0 then
+			finish()
+		else
+			task.delay(duration, finish)
+		end
 	end
 	shown = false
-	openScale.Scale = .96
+	root.Visible = false
 	toggleShown(true)
 end
-
 connect(close.Activated, destroy)
 local minimized, restoreH = false, H
 connect(minimize.Activated, function()
 	minimized = not minimized
-	root:SetAttribute("R3ST_Minimized",minimized)
+	root:SetAttribute("R3ST_Minimized", minimized)
 	if minimized then
 		restoreH = root.Size.Y.Offset -- the size the user actually left it at
 	end
 	content.Visible = not minimized
-	sidebar.Visible = not minimized
-	blur.Enabled = not minimized
-	tween(root, { Size = UDim2.fromOffset(root.Size.X.Offset, minimized and HEADER_H or restoreH) }, MOTION.base)
+	sidebar.Visible = not minimized and not state.navHidden
+	blur.Enabled = not minimized and state.blur > 0
+	-- Commit geometry once; resizing the root per frame reflows every game page.
+	root.Size = UDim2.fromOffset(root.Size.X.Offset, minimized and HEADER_H or restoreH)
+	if not minimized and UIKit then UIKit.pageIn(content, 1, UDim2.fromScale(1, 0)) end
 end)
-
 local dragging, dragStart, startPos = false, nil, nil
 connect(header.InputBegan, function(i)
 	if i.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragging = true; dragStart = i.Position; startPos = root.Position
+		if UIKit then UIKit.cancelMotion(root, "Position") end
+		dragging = true
+		dragStart = i.Position
+		startPos = root.Position
 	end
 end)
 connect(UIS.InputChanged, function(i)
 	if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
 		local d = i.Position - dragStart
-		root.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset+d.X, startPos.Y.Scale, startPos.Y.Offset+d.Y)
+		root.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset + d.X,
+			startPos.Y.Scale,
+			startPos.Y.Offset + d.Y
+		)
 	end
 end)
 connect(UIS.InputEnded, function(i)
@@ -2044,85 +2368,121 @@ connect(UIS.InputBegan, function(i, gp)
 		return
 	end
 	if gp then return end
+	local ctrl = UIS:IsKeyDown(Enum.KeyCode.LeftControl) or UIS:IsKeyDown(Enum.KeyCode.RightControl)
+	if ctrl and shown and i.KeyCode == Enum.KeyCode.F then
+		setPage("Home")
+		task.defer(function() if alive then search:CaptureFocus() end end)
+		return
+	end
+	if ctrl and shown and i.KeyCode == Enum.KeyCode.B then
+		local toggle = header:FindFirstChild("ToggleNavigation")
+		if toggle then toggle:SetAttribute("R3ST_Flip", (toggle:GetAttribute("R3ST_Flip") or 0) + 1) end
+		return
+	end
+	if ctrl then return end
 	if i.KeyCode == Enum.KeyCode.K then destroy() end
 end)
-
--- Compact navigation is automatic on narrow windows and user-toggleable otherwise.
 do
-	local collapsed = nil
-	local navToggle = button(header, "Menu", UDim2.fromOffset(54,22), UDim2.fromOffset(66,40))
-	local function layout()
-		local compact = collapsed
-		if compact == nil then compact = root.Size.X.Offset < 850 end
-		local width = compact and 52 or SIDEBAR_W
-		sidebar.Size = UDim2.new(0,width,1,-(HEADER_H+12))
-		content.Position = UDim2.fromOffset(width+24,HEADER_H)
-		content.Size = UDim2.new(1,-(width+36),1,-(HEADER_H+12))
-		for _,text in pairs(navLabels) do text.Visible = not compact end
-		for _,child in ipairs(sidebar:GetChildren()) do
-			if child:IsA("TextLabel") then child.Visible = not compact end
+	local navToggle =
+		iconButton(header, "menu", UDim2.fromOffset(36, 34), UDim2.fromOffset(14, 15))
+	navToggle.Name = "ToggleNavigation"
+	local menuIcon = navToggle:FindFirstChild("R3ST_Icon")
+	if menuIcon and #menuIcon:GetChildren() == 0 then
+		for _, offset in ipairs({ -5, 0, 5 }) do
+			icon(navToggle, "minus", 20, C.dim,
+				UDim2.new(0.5, 0, 0.5, offset), Vector2.new(0.5, 0.5))
 		end
-		experienceLabel.Visible = root.AbsoluteSize.X >= 650
-		local short = root.AbsoluteSize.Y < 600
-		featured.Visible = not short
-		resultCount.Position = UDim2.fromOffset(20,short and 78 or 264)
-		allList.Position = UDim2.fromOffset(20,short and 106 or 292)
-		allList.Size = UDim2.new(1,-40,1,-(short and 122 or 308))
-		search.Size = UDim2.new(1,-40,0,34)
-		search.Position = UDim2.fromOffset(20,18)
 	end
-	connect(navToggle.Activated,function()
-		if collapsed == nil then collapsed = root.Size.X.Offset < 850 end
-		collapsed = not collapsed
-		layout()
-	end)
-	connect(root:GetPropertyChangedSignal("AbsoluteSize"),layout)
-	layout()
+	-- Reflow once per destination, then slide a fixed-width sidebar and clip mask.
+	-- The old width tweens resized every mounted page on every animation frame.
+	local navTicket = 0
+	local lastW, lastH, lastHidden, lastMinimized
+	local function layout(animate)
+		-- Logical dimensions ignore the window's opening UIScale animation.
+		local w, h = root.Size.X.Offset, root.Size.Y.Offset
+		local hidden = state.navHidden == true or w < 720
+		local mini = root:GetAttribute("R3ST_Minimized") == true
+		if w == lastW and h == lastH and hidden == lastHidden and mini == lastMinimized then return end
+		lastW, lastH, lastHidden, lastMinimized = w, h, hidden, mini
+		local d = (animate and not state.reduceMotion and not mini) and 0.24 or 0
+		navTicket += 1
+		local ticket = navTicket
+		sidebar.Visible = not mini and (not hidden or d > 0)
+		sidebar.Size = UDim2.new(0, SIDEBAR_W, 1, -(HEADER_H + 12))
+		tween(sidebar, { Position = UDim2.fromOffset(hidden and -SIDEBAR_W - 4 or 12, HEADER_H) }, d)
+		local left = hidden and 12 or (SIDEBAR_W + 24)
+		local targetSize = UDim2.fromOffset(math.max(0, w - left - 12), math.max(0, h - HEADER_H - 12))
+		if content.Size ~= targetSize then content.Size = targetSize end
+		tween(contentViewport, { Position = UDim2.fromOffset(left, HEADER_H),
+			Size = UDim2.new(1, -(left + 12), 1, -(HEADER_H + 12)) }, d)
+		if hidden and d > 0 then
+			task.delay(d, function()
+				if alive and navTicket == ticket then sidebar.Visible = false end
+			end)
+		end
+		iconColor(navToggle:FindFirstChild("R3ST_Icon"), hidden and C.accentText or C.dim)
+		experienceLabel.Visible = w >= 700
+		local short = h < 620
+		featured.Visible = not short
+		resultCount.Position = UDim2.fromOffset(24, short and 164 or 366)
+		allList.Position = UDim2.fromOffset(24, short and 194 or 396)
+		allList.Size = UDim2.new(1, -48, 1, -(short and 218 or 420))
+		search.Size = UDim2.new(1, -48, 0, 40)
+		search.Position = UDim2.fromOffset(24, 64)
+	end
+	local function flip()
+		state.navHidden = not (state.navHidden == true or root.Size.X.Offset < 720)
+		saveConfig(true)
+		layout(true)
+	end
+	connect(navToggle.Activated, flip)
+	connect(navToggle:GetAttributeChangedSignal("R3ST_Flip"), flip)
+	connect(navToggle:GetAttributeChangedSignal("R3ST_Layout"), function() layout(true) end)
+	connect(root:GetPropertyChangedSignal("Size"), function() layout(false) end)
+	layout(false)
 end
 applyTheme(state.theme)
 setPage(state.page)
-hubLog("info", "boot place=" .. tostring(game.PlaceId) .. " universe=" .. tostring(game.GameId)
-	.. " registry=" .. tostring(registryCount)
-	.. " matched=" .. (activeEntry and activeEntry.name or "none"))
+hubLog(
+	"info",
+	"boot place="
+		.. tostring(game.PlaceId)
+		.. " universe="
+		.. tostring(game.GameId)
+		.. " registry="
+		.. tostring(registryCount)
+		.. " matched="
+		.. (activeEntry and activeEntry.name or "none")
+)
 if not activeEntry then
-	-- The universe id is what a private-server row needs, so print it rather than
-	-- making the next session re-derive it.
-	hubLog("warn", "no registry row for universe " .. tostring(game.GameId)
-		.. " (place " .. tostring(game.PlaceId) .. "). If this is a VIP server of a supported game,"
-		.. " that entry is missing its gameId.")
+	hubLog(
+		"warn",
+		"no registry row for universe "
+			.. tostring(game.GameId)
+			.. " (place "
+			.. tostring(game.PlaceId)
+			.. "). If this is a VIP server of a supported game,"
+			.. " that entry is missing its gameId."
+	)
 end
-
--- Autoload is evaluated only after identity matching (hub skill S2.6), and it
--- covers EVERY host page this place built -- the game module and Anims alike.
--- A module the hub decided belongs here must be loaded and armed on inject; it
--- is not the user's job to open its tab first. Foreign modules never get a host
--- page, so this policy cannot reach one.
 if state.autoOpen then
 	task.defer(function()
 		if not alive then return end
-		if activeEntry and activeEntry.embed and mountActiveGame then
-			setPage(activeEntry.name)
-		end
+		if activeEntry and activeEntry.embed and mountActiveGame then setPage(activeEntry.name) end
 		for id, mount in pairs(hostMounts) do
 			local ok, err = mount(false)
-			if not ok then hubLog("warn", "autoload " .. tostring(id) .. " failed: " .. tostring(err)) end
+			if not ok then
+				hubLog("warn", "autoload " .. tostring(id) .. " failed: " .. tostring(err))
+			end
 		end
-		-- An identity-matched module that is not embedded still opens its own
-		-- window on inject rather than waiting behind a button.
 		if activeEntry and not activeEntry.embed then runModule(activeEntry, nil) end
 	end)
 end
-
--- Admin is a launcher page, not a host mount, so the loop above never reaches it.
--- Start it here so a rejoin brings the ] bar back too. Critical Strike kicks for
--- admin.lua (AGENTS.md "Potassium discipline") and stays click-to-launch.
 if state.autoAdmin ~= false and launchAdmin then
 	if game.PlaceId == 8246089782 or game.GameId == 3163813433 then
 		hubLog("info", "admin autostart skipped: Critical Strike kicks for admin.lua")
 	else
 		task.defer(function()
-			-- admin.lua tears down a live core and reloads it. On a hub re-inject
-			-- that would restart a working bar for nothing, so leave a ready one be.
 			local resident = G.Admin
 			if not alive or (type(resident) == "table" and resident._ready == true) then return end
 			local ok, err = pcall(launchAdmin, false)
@@ -2130,10 +2490,7 @@ if state.autoAdmin ~= false and launchAdmin then
 		end)
 	end
 end
-
--- Nav clicks are now a no-op for an already-mounted module (mount() returns
--- early), so these only cover the case where autoload is off or a mount failed.
-if navButtons[ "Anims" ] then
+if navButtons["Anims"] then
 	connect(navButtons["Anims"].Activated, function() mountAnims(false) end)
 end
 if activeEntry and activeEntry.embed and navButtons[activeEntry.name] and mountActiveGame then

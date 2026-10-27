@@ -1,8 +1,8 @@
--- R3ST Hub remote loader v2026-10-19.4
+-- R3ST Hub remote loader v2026-10-26.5
 -- Public bootstrap: immutable release fetch, SHA-256 verification, verified cache fallback.
 -- Rung 2: distribution/bootstrap only; no game state or Roblox remotes touched.
 
-local LOADER_VERSION = 4
+local LOADER_VERSION = 5
 local OWNER, REPO, CHANNEL = "xReset", "resthub", "main"
 local RAW_ROOT = ("https://raw.githubusercontent.com/%s/%s/"):format(OWNER, REPO)
 local MANIFEST_URL = RAW_ROOT .. CHANNEL .. "/manifest.json"
@@ -143,8 +143,13 @@ for _, module in ipairs(manifest.modules) do
     if type(module) ~= "table" or type(module.id) ~= "string" or type(module.path) ~= "string" then
         fail("invalid module entry")
     end
-    local identityMatch = (isInteger(module.gameId) and module.gameId == game.GameId)
-        or (isInteger(module.placeId) and module.placeId == game.PlaceId)
+    -- A matching place never overrides a declared foreign universe.
+    local identityMatch
+    if isInteger(module.gameId) then
+        identityMatch = module.gameId == game.GameId
+    else
+        identityMatch = isInteger(module.placeId) and module.placeId == game.PlaceId
+    end
     if identityMatch then
         if selected then fail("manifest has multiple modules matching this experience") end
         selected = module
