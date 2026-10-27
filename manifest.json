@@ -1,19 +1,19 @@
 {
     "schema":  1,
-    "minLoader":  4,
-    "release":  "2026-10-20.2",
-    "revision":  "bdce9ca0276715b6f3912d34f18f256977674d93",
+    "minLoader":  5,
+    "release":  "2026-10-26.1",
+    "revision":  "41043b77870349124488ba6ab222826eda93ada1",
     "files":  {
                   "hub.lua":  {
-                                  "sha256":  "c0690573aef974c539bb29f2a1a5e3afa05bf2d5a5ed4b112e5d5753db497cad",
+                                  "sha256":  "9fe4060c4afe95cd10b633cae32c429e880c87984ec4217f422bd92611a689c7",
                                   "localName":  "hub.lua"
                               },
                   "r3st_ui.lua":  {
-                                      "sha256":  "d895e81dc7953fa075d32ceef53822e421257f55fcf0f2c59df3eda4105d08a7",
+                                      "sha256":  "b9e403dfbe6ff69013142a89373dde42174e7ddccbe8122bfa49a21245febb0e",
                                       "localName":  "r3st_ui.lua"
                                   },
                   "anims.lua":  {
-                                    "sha256":  "d8917905ea05ed692323e75d477cd2847d7707d6c7e48af8fb42cb06b0214777",
+                                    "sha256":  "31b7c89ffb386aca1581c1462287061ac388dd811f3bfa56aa4e94ec997d05aa",
                                     "localName":  "anims.lua"
                                 },
                   "log.lua":  {
@@ -21,7 +21,7 @@
                                   "localName":  "log.lua"
                               },
                   "games/abd_item_esp.lua":  {
-                                                 "sha256":  "15d63ccaca0ba44c32c903754d3a7e55424de098ccf3dfafb69c46f0e1d4a3ca",
+                                                 "sha256":  "74f89e3ab7e06174f960c1e67f16111420f17847ddcb5aea957a1833ad842249",
                                                  "localName":  "abd_item_esp.lua"
                                              },
                   "telemetry.lua":  {
@@ -39,7 +39,23 @@
                   "games/dqr_hub.lua":  {
                                             "sha256":  "11810564e6dcfd8f0b3e16b9e058ba84b738f7072ada5efc4010fd21f9f22eb4",
                                             "localName":  "dqr_hub.lua"
-                                        }
+                                        },
+                  "games/wideopen_hub.lua":  {
+                                                 "sha256":  "ef7d039e4139bc380c1d99f9a1986dc6e1f37722e3fbef19676910e6dc3a1c94",
+                                                 "localName":  "wideopen_hub.lua"
+                                             },
+                  "games/clover_hub.lua":  {
+                                               "sha256":  "0cdce0bc5b75e5be5d8cbc2300ec18330a4ed0ecee1dd4a6d73aeea1b34ff178",
+                                               "localName":  "clover_hub.lua"
+                                           },
+                  "games/bike_universe_hub.lua":  {
+                                                      "sha256":  "67fac2fcb3fd55fb2d9c126db61531dc5e481161f56d2a8f096e13fd70533b2a",
+                                                      "localName":  "bike_universe_hub.lua"
+                                                  },
+                  "games/backseat_rally_hub.lua":  {
+                                                       "sha256":  "804650cf6426aef7466155e4b676c5c8b7224d7820b629ac4db7e557c26fd47b",
+                                                       "localName":  "backseat_rally_hub.lua"
+                                                   }
               },
     "modules":  [
                     {
@@ -65,6 +81,30 @@
                         "gameId":  9931749389,
                         "placeId":  77649408247578,
                         "path":  "games/dqr_hub.lua"
+                    },
+                    {
+                        "id":  "wideopen",
+                        "gameId":  10766812776,
+                        "placeId":  109959833715820,
+                        "path":  "games/wideopen_hub.lua"
+                    },
+                    {
+                        "id":  "clover-rpg",
+                        "gameId":  3164482049,
+                        "placeId":  8248288152,
+                        "path":  "games/clover_hub.lua"
+                    },
+                    {
+                        "id":  "bike-universe",
+                        "gameId":  10768284407,
+                        "placeId":  98628861455414,
+                        "path":  "games/bike_universe_hub.lua"
+                    },
+                    {
+                        "id":  "backseat-rally",
+                        "gameId":  10769543742,
+                        "placeId":  94278659624110,
+                        "path":  "games/backseat_rally_hub.lua"
                     }
                 ]
 }
