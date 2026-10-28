@@ -1,4 +1,7 @@
--- Backseat Rally Hub v2026-10-26.6
+-- Backseat Rally Hub v2026-10-28.1
+-- Downforce multiplier scales private Tune.Gravity (not aerodynamic downforce).
+-- Proof: dump 0027:495,771,841,1547; stock forces/springs/landing use this value.
+-- 1x is stock; higher values shorten jumps and also change ground handling.
 -- Camera: local FovOffset/CameraLean/CameraShake and DriverEye Attachment only.
 -- Proof: dump 0029:438-442,515-516,737-738,769-786; no body CFrame writes.
 -- Rollover resistance: dump 0027:1342-1345 lifts tyre force toward COM.
@@ -11,7 +14,7 @@
 -- 1437-1491; 0045:1564-1716. Stages anticheat config: 0175:153-173.
 -- Shared cached CarTune tables are never modified. RPM/audio bands unchanged.
 -- Re-inject safe: self-teardown; K unload, Delete panic. Saved state resumes.
-local BUILD_VERSION = "2026-10-26.6"
+local BUILD_VERSION = "2026-10-28.1"
 local EXPECTED_GAME = 10769543742
 local EXPECTED_PLACE = 94278659624110
 local GKEY = "__BACKSEAT_RALLY_HUB"
@@ -34,9 +37,9 @@ local LP = Players.LocalPlayer
 -- CORE BEGIN
 local Core = {}
 Core.defaults = { enabled = false, power = 1.35, speed = 1.1, grip = 1.3,
-	stability = 1.15, brakes = 1.15, planted = 0 }
+	stability = 1.15, brakes = 1.15, planted = 0, downforce = 1 }
 Core.limits = { power = { 1, 4 }, speed = { 1, 1.2 }, grip = { 1, 3 },
-	stability = { 1, 2 }, brakes = { 1, 2.5 }, planted = { 0, 1 } }
+	stability = { 1, 2 }, brakes = { 1, 2.5 }, planted = { 0, 1 }, downforce = { 1, 3 } }
 function Core.profile(saved)
 	local p = table.clone(Core.defaults)
 	if type(saved) ~= "table" or getmetatable(saved) then return p end
@@ -78,6 +81,12 @@ end
 function Core.resolve(base, p)
 	if not p.enabled then return base end
 	local tune = table.clone(base)
+	-- Use the stock chassis gravity compensation at COM, including in the air.
+	-- The stock suspension and landing prediction use this same gravity too.
+	if p.downforce > 1 then
+		assert(type(base.Gravity) == "number" and base.Gravity > 0, "unsupported tune: Gravity")
+		tune.Gravity = base.Gravity * p.downforce
+	end
 	for _, key in ipairs({ "Engine", "Gears", "Tyres", "Steering", "Brakes", "Drag" }) do
 		assert(type(base[key]) == "table", "unsupported tune: " .. key)
 		tune[key] = table.clone(base[key])
@@ -191,6 +200,8 @@ local function tuneStep()
 			sess.base.Engine.Force, resolved.Engine.Force,
 			sess.base.Tyres.LateralGrip, resolved.Tyres.LateralGrip,
 			sess.base.Gears.Ratios[1], resolved.Gears.Ratios[1]))
+		Log.info(string.format("downforce car=%s multiplier=%.2f gravity=%s->%s",
+			id, p.downforce, tostring(sess.base.Gravity), tostring(resolved.Gravity)))
 		Log.info(string.format("rollover car=%s support=%.0f%% forceLift=%s->%s",
 			id, p.planted * 100, tostring(sess.base.Tyres.ForceLift), tostring(resolved.Tyres.ForceLift)))
 	end
@@ -375,12 +386,14 @@ local function main()
 	W.section(driving, "Speed and control")
 	W.note(driving, "Raise one setting at a time. More power can add wheelspin; more grip can upset balance. Maximums are not a tested preset.")
 	for _, row in ipairs({ { "power", "Acceleration" }, { "speed", "Top-speed gearing" },
-		{ "grip", "Traction" }, { "stability", "Steering stability" }, { "brakes", "Braking" } }) do
+		{ "grip", "Traction" }, { "stability", "Steering stability" }, { "brakes", "Braking" },
+		{ "downforce", "Downforce multiplier" } }) do
 		local key, label = row[1], row[2]
 		W.slider(driving, { label = label, min = Core.limits[key][1], max = Core.limits[key][2], step = 0.05,
 			get = function() return profile()[key] end,
 			set = function(v) setProfile(key, v) end, fmt = function(v) return string.format("%.2fx", v) end })
 	end
+	W.note(driving, "Downforce scales car gravity, not aerodynamics. 1x is stock; try 1.25x for shorter jumps. Also changes grip and suspension forces. Requires Tuning ON.")
 	W.slider(driving, { label = "Rollover resistance", min = 0, max = 1, step = 0.05,
 		get = function() return profile().planted end,
 		set = function(v) setProfile("planted", v) end,

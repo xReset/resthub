@@ -8,20 +8,11 @@ Public, code-only distribution for R3ST Hub. The maintained sources are mirrored
 loadstring(httpget("https://raw.githubusercontent.com/xReset/resthub/main/loader.lua"), "=resthub")()
 ```
 
-The loader fetches a release manifest, downloads executable files from its immutable 40-character commit revision, verifies SHA-256 hashes, compiles the complete release before updating cache, and loads only the module matching the current Roblox universe/place. Current game modules:
+The loader fetches a release manifest, downloads executable files from its immutable 40-character commit revision, verifies SHA-256 hashes, compiles the complete release before updating cache, and loads only the module matching the current Roblox universe/place. Release `2026-10-28.1` includes every module in the canonical Hub registry (30 games), the shared runtime, UI, logger and Anims. The exact game identities, files and hashes live in [`manifest.json`](manifest.json), generated from the canonical registry rather than a separate hand-maintained game list.
 
-- A Bizarre Day : Classic (`abd_item_esp.lua`) — dropped-item ESP, including Banknotes
-- Blue Lock Rivals (`blr_hub.lua`)
-- Ghost Driver (`gd2.lua`)
-- Dungeon Quest Reborn (`dqr_hub.lua`)
-- WideOpen (`wideopen_hub.lua`) — bike tuning, contact guard, W + Space wheelie limiter, player names/distance
-- Clover RPG (`clover_hub.lua`) — build `2026-10-26.28`, gathering/professions, quests/map, manual town travel, broom controls and experimental PvE/PvP auto-parry
-- Bike Universe (`bike_universe_hub.lua`) — saved bike tuning, stunts and local crash guards
-- Backseat Rally (`backseat_rally_hub.lua`) — bike tuning, camera, sound and restorable local controls
+This includes Backseat Rally's saved 1–3x downforce/gravity control, the latest Clover controls and performance fixes, and RoChess solvers. Gravity defaults to stock 1x; live jump handling is not certified. Existing gameplay and server-acceptance limits remain unchanged.
 
-Release `2026-10-26.1` publishes the current shared Studio UI, Hub `2026-10-26.13-public`, Anims, Clover `.28`, Bike Universe and Backseat Rally, alongside the existing modules. Clover includes 110 captured attack-marker profiles, one native parry pulse per hit, replay/multi-hit rearming and nested PvE detection. Native cooldowns, manual ownership and unblockable attacks still apply; every-hit success is not certified. Broom server cooldown bypass, native town arrival and hymn completion remain unverified. Saved automation choices resume, including parry, mining, harvest, armor, chest loot and manual broom debounce; missing choices stay OFF. Harvest steering leases only the active minigame's native mouse/touch aim listeners, preserving unrelated input and native cancel/smoothing. Three supported Clover remounts preserve saved choices; active harvesting mouse priority still needs player confirmation.
-
-Loader v5 verifies the shared logger for fresh installs before Hub startup and prevents a matching place from overriding a foreign universe. Gates and mocked lifecycle tests do not certify combat, active-harvest input priority, rewards or server acceptance.
+Loader v6 verifies the shared runtime and logger for fresh installs before Hub startup and prevents a matching place from overriding a foreign universe. This release requires v6 so an older cached loader cannot skip the runtime. Gates and mocked lifecycle tests do not certify combat, active-harvest input priority, rewards or server acceptance.
 
 ## Diagnostics
 
@@ -38,3 +29,5 @@ The endpoint is intentionally not included in git. Telemetry continuously ships 
 ## Maintenance
 
 Do not edit mirrored Luau here first. Update and ship the canonical Potassium source, then run `tools/sync-from-potassium.ps1`. Agents must read `AGENTS.md` and `.agents/skills/resthub-maintainer/SKILL.md` before changing distribution files.
+
+A canonical Git push alone does **not** update the public loadstring. A Hub delivery must also sync this distribution, gate it, commit the executable state, pin the manifest to that commit, push both repositories, and verify the remote hashes. Sync automatically includes all canonical registry modules and the shared runtime, so new registry rows cannot be silently left out. Publishing does not reload an already-running client.

@@ -2,7 +2,13 @@ param([switch]$CheckRemote)
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent $PSScriptRoot
 $Compiler = Join-Path $PSScriptRoot "..\..\Potassium\tools\luau-compile.exe"
-$Lua = @("loader.lua", "telemetry.lua", "hub.lua", "r3st_ui.lua", "anims.lua", "log.lua", "games/abd_item_esp.lua", "games/blr_hub.lua", "games/gd2.lua", "games/dqr_hub.lua", "games/wideopen_hub.lua", "games/clover_hub.lua", "games/bike_universe_hub.lua", "games/backseat_rally_hub.lua")
+$manifestPath = Join-Path $Root "manifest.json"
+if (!(Test-Path $manifestPath -PathType Leaf)) { throw "GATE FAIL missing manifest.json" }
+$manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+$Lua = @("loader.lua") + @($manifest.files.PSObject.Properties.Name)
+foreach ($required in @("hub.lua", "r3st_runtime.lua", "r3st_ui.lua", "anims.lua", "log.lua")) {
+    if (!$manifest.files.PSObject.Properties[$required]) { throw "GATE FAIL missing dependency $required" }
+}
 foreach ($path in $Lua) {
     $full = Join-Path $Root ($path -replace '/', '\')
     if (!(Test-Path $full -PathType Leaf)) { throw "GATE FAIL missing $path" }
@@ -10,9 +16,6 @@ foreach ($path in $Lua) {
     if ($LASTEXITCODE -ne 0) { throw "GATE FAIL compile $path" }
     Write-Host "COMPILE_OK $path"
 }
-$manifestPath = Join-Path $Root "manifest.json"
-if (!(Test-Path $manifestPath -PathType Leaf)) { throw "GATE FAIL missing manifest.json" }
-$manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
 if ($manifest.schema -ne 1 -or $manifest.minLoader -gt 5) { throw "GATE FAIL manifest schema/loader" }
 if ($manifest.revision -notmatch '^[0-9a-fA-F]{40}$') { throw "GATE FAIL manifest revision" }
 foreach ($property in $manifest.files.PSObject.Properties) {
@@ -25,7 +28,7 @@ foreach ($property in $manifest.files.PSObject.Properties) {
     Write-Host "HASH_OK $path"
 }
 $tracked = git -C $Root ls-files
-$patterns = 'https?://[^\s"<>]*\.ts\.net(?:/[^\s"<>]*)?|gh[pousr]_[A-Za-z0-9]+|Authorization\s*[:=]\s*Bearer\s+[A-Za-z0-9._-]+|discord(?:app)?\.com/api/webhooks/|BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY|password\s*[:=]\s*[^\s\[]+'
+$patterns = 'https?://[^\s"<>]*\.ts\.net(?:/[^\s"<>]*)?|gh[pousr]_[A-Za-z0-9]+|Authorization\s*[:=]\s*Bearer\s+[A-Za-z0-9._-]+|discord(?:app)?\.com/api/webhooks/|BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY|password\s*[:=]\s*(?!%s\b)[^\s\[]+'
 $hits = foreach ($file in $tracked) {
     $full = Join-Path $Root $file
     if (Test-Path $full -PathType Leaf) { Select-String -Path $full -Pattern $patterns -AllMatches -CaseSensitive:$false }

@@ -2,7 +2,7 @@
 -- Public bootstrap: immutable release fetch, SHA-256 verification, verified cache fallback.
 -- Rung 2: distribution/bootstrap only; no game state or Roblox remotes touched.
 
-local LOADER_VERSION = 5
+local LOADER_VERSION = 6
 local OWNER, REPO, CHANNEL = "xReset", "resthub", "main"
 local RAW_ROOT = ("https://raw.githubusercontent.com/%s/%s/"):format(OWNER, REPO)
 local MANIFEST_URL = RAW_ROOT .. CHANNEL .. "/manifest.json"
@@ -159,6 +159,8 @@ end
 local required = { "hub.lua", "r3st_ui.lua", "anims.lua" }
 -- Older releases predate the shared logger. New modules need it on fresh installs.
 if manifest.files["log.lua"] then required[#required + 1] = "log.lua" end
+-- Current Hub delegates lifecycle work to this module; stage it before startup.
+if manifest.files["r3st_runtime.lua"] then required[#required + 1] = "r3st_runtime.lua" end
 if selected then required[#required + 1] = selected.path end
 local optional = { "telemetry.lua" }
 local releaseRoot = RAW_ROOT .. manifest.revision .. "/"

@@ -1,4 +1,15 @@
--- Clover RPG v2026-10-26.28 (2026-10-26)
+-- Clover RPG v2026-10-27.5 (2026-10-27)
+-- .5 Readable Hub help, grouped controls and truthful loot/indicator labels; same settings/backends.
+-- .4 Cache unchanged quest/mob marker writes and scan distances; preserve live observations.
+-- Fix quest label wrapping and stale draw-limit warnings. Same ranges, draw caps and cadence.
+-- .3 Accepted quest objectives/pickups/material nodes and turn-in ESP on Quest assistance.
+-- W0297/0736/1044/0684: replicated reads + owned markers (rungs 1-2); no quest writes/requests.
+-- .2 PvE/boss attack cues, published cooldowns and advance lock-expiry warnings.
+-- Rungs 1-2: reads + owned markers; no attack schedule or universal safe-window claim.
+-- .1 No carry slowdown via the native weight consumer; owned restore on OFF/unload.
+-- No carry slowdown: owned Player.UnlimitedCarryWeight flag (rung 3),
+-- W0864:146-167/W1030:221-223,256-257. Native movement is server-visible;
+-- inventory capacity and motion acceptance remain server-owned. No direct physics writes.
 -- .28 Resume all saved automation choices by explicit user request; lease active harvest aim listeners.
 -- .27 Native parry pulses; fresh replay/multihit cues; broad PvE marker coverage and due-hit selection.
 -- .26 Keep native guard/key teardown off the Hub remount thread.
@@ -93,7 +104,7 @@
 -- local broom controls and reviewed session/lifecycle guards.
 -- .1 Streamed awareness, adaptive fullbright, native local swiftness,
 -- vitals/cooldown readouts and passive PvE event recording for defense research.
-local BUILD_VERSION = "2026-10-26.28"
+local BUILD_VERSION = "2026-10-27.5"
 local GKEY = "__CLOVER_HUB"
 local CONFIG_FILE = "clover_hub_config.json"
 local G = getgenv()
@@ -127,6 +138,9 @@ Core.defaults = {
     noFall = false, chainSlide = false, combatMove = false, broomBoost = false, broomBonus = 25,
     revealMap = false, autoParry = false, parryPve = true, parryPvp = true,
     parryFallback = true, parryRange = 24, parrySpellRange = 90, broomAltitude = false,
+    noCarrySlowdown = false,
+    mobIndicators = false, mobIndicatorRange = 120, mobWarnLead = 0.6,
+    questESP = false, questPickups = true, questLocations = true, questMaterials = true,
 }
 function Core.config(saved)
     local cfg = table.clone(Core.defaults)
@@ -141,7 +155,8 @@ function Core.config(saved)
         cfg.range = math.clamp(range, 150, 9000)
     end
     for k, bounds in pairs({ healthRange = {50, 3000}, limit = {8, 64}, brightness = {1, 4},
-        exposure = {-1, 1}, speed = {0, 4.5}, broomBonus = {0, 200}, parryRange = {8, 60}, parrySpellRange = {20, 150} }) do
+        exposure = {-1, 1}, speed = {0, 4.5}, broomBonus = {0, 200}, parryRange = {8, 60}, parrySpellRange = {20, 150},
+        mobIndicatorRange = {30, 600}, mobWarnLead = {0.2, 2} }) do
         local v = saved[k]
         if type(v) == "number" and v == v and (k ~= "broomBonus" or math.abs(v) < math.huge) then
             cfg[k] = math.clamp(v, bounds[1], bounds[2])
@@ -419,6 +434,7 @@ local Armor -- event-driven inventory owner; production packet path is proof-gat
 local Climb -- owns only the native table slot, never the shared airborne/ledge cells
 local Dash -- owns only the current character's StateManager.CanDash slot
 local Advanced -- dump-backed owned native movement adapters; no remote calls
+local Carry -- owned Player attribute; native movement consumer applies weight rules
 local lootSession, lootStatus = nil, "Open a chest after enabling"
 local lootArmed = false -- arm only after observing the native loot UI closed
 local lootSequence, nextLootSend = 0, 0
@@ -587,6 +603,7 @@ local function applyConfig()
     if not CFG.climb and Climb then Climb.release(); Climb.blocked = nil end
     if not CFG.dash and Dash then Dash.release(); Dash.blocked = nil end
     if Advanced then Advanced.apply() end
+    if Carry and not CFG.noCarrySlowdown then Carry.release() end
     if not CFG.esp then clearMarkers() end
     if not CFG.fullbright then releaseEnvironment() end
     if not CFG.movement then releaseMovement() end
@@ -647,6 +664,29 @@ local function movementStep()
         if type(expiry) == "number" and expiry <= workspace:GetServerTimeNow() then S.movementStatus = "Window expired; toggle to rebind" end
     end
 end
+Carry = (function()
+    local api = {status = "OFF"}
+    local fields = {}
+    function api.release()
+        Core.restore(fields, attributesRead, attributesWrite)
+        api.status = "OFF"
+    end
+    function api.step()
+        if not CFG.noCarrySlowdown then api.release(); return end
+        local char = LocalPlayer.Character
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not hum or hum.Health <= 0 or S.defenseTransition then
+            api.release(); api.status = "ON · waiting for a living character"; return
+        end
+        -- W0878 returns Player first, Character second. Weight is read from
+        -- the Player, not the rig. The native changed-signal reapplies speed.
+        local owned = Core.own(fields, LocalPlayer, "UnlimitedCarryWeight", true,
+            attributesRead, attributesWrite, false)
+        api.status = owned and "ON · native weight speed penalty removed"
+            or "ON · yielded to game weight-flag update; toggle OFF/ON to retry"
+    end
+    return api
+end)()
 -- Gathering introspects two known signals; climb uses scoped GC discovery below.
 -- Verify closure names, source instances and runtime shapes; fail closed on drift.
 local function ups(fn)
@@ -1670,6 +1710,281 @@ local QuestAssist = (function()
     end
     return api
 end)()
+-- QUEST_ESP_BEGIN: replicated quest reads + owned adornments only (W0297/0736/1044/0684).
+local QuestESP = {status = "OFF", shown = 0, available = 0, waiting = 0}
+do
+    local markers, anchors, markerFolder = {}, {}, nil
+    local nextScan = 0
+    -- Owner and task names are exact W quest template/folder bindings. No global name search.
+    local pickups = {
+        {"Old Man Adelfus", "Locate missing wagon wheels", "Wheels"},
+        {"Coffee", "Locate missing lanterns", "Lanterns"},
+        {"Sowon", "Locate Sowon's glasses.", "Glasses"},
+        {"Boatman Pip", "Locate missing paddle", "Paddle"},
+        {"Jack", "Retrieve the bucket from the well", "Bucket"},
+    }
+    -- These exact tags are captured harvest nodes, not inferred ground-item names.
+    local materialTags = {Bamboo = "Bamboo", Cloth = "Cloth", Wheat = "Wheat", Wolfsbane = "Wolfsbane",
+        ["Ember Bloom"] = "Ember Bloom"}
+    local colors = {pickup = Color3.fromRGB(255, 217, 92), location = Color3.fromRGB(102, 214, 255),
+        material = Color3.fromRGB(133, 237, 162), returnPoint = Color3.fromRGB(203, 166, 255)}
+    local function finite(n)
+        return type(n) == "number" and n == n and math.abs(n) < math.huge
+    end
+    local function point(value, allowZero)
+        if typeof(value) == "CFrame" then value = value.Position end
+        return typeof(value) == "Vector3" and finite(value.X) and finite(value.Y) and finite(value.Z)
+            and (allowZero or value.X ~= 0 or value.Y ~= 0 or value.Z ~= 0) and value or nil
+    end
+    local function worldObject(object)
+        return object and object.Parent and object:IsDescendantOf(workspace)
+    end
+    local function progress(taskData, inventory)
+        local maximum = taskData:GetAttribute("TaskMax")
+        if not finite(maximum) or maximum <= 0 then maximum = 1 end
+        local value
+        if taskData:GetAttribute("TaskType") == "Collect" then
+            local name = taskData:GetAttribute("Object")
+            local item = type(name) == "string" and inventory and inventory:FindFirstChild(name)
+            value = item and item:GetAttribute("Stock")
+        else value = taskData:GetAttribute("TaskProgress") end
+        if not finite(value) then value = 0 end
+        return value, maximum
+    end
+    local function remove(key)
+        local marker = markers[key]
+        if marker then
+            marker.gui:Destroy()
+            if marker.highlight then marker.highlight:Destroy() end
+            markers[key] = nil
+        end
+        if anchors[key] then anchors[key]:Destroy(); anchors[key] = nil end
+    end
+    function QuestESP.clear()
+        for key in pairs(markers) do remove(key) end
+        if markerFolder then markerFolder:Destroy(); markerFolder = nil end
+        table.clear(anchors)
+        QuestESP.shown = 0; QuestESP.available = 0; QuestESP.waiting = 0
+        QuestESP.status = "OFF"; nextScan = 0
+    end
+    QuestESP.destroy = QuestESP.clear
+    local function paint(row)
+        local marker = markers[row.key]
+        if not marker then
+            local gui = Instance.new("BillboardGui")
+            gui.Name = "CloverQuestObjective"; gui.AlwaysOnTop = true
+            gui.Size = UDim2.fromOffset(260, 76); gui.MaxDistance = 9300
+            gui.StudsOffset = Vector3.new(0, 3, 0); gui.Parent = layer
+            local label = Instance.new("TextLabel")
+            label.Size = UDim2.fromScale(1, 1); label.BackgroundTransparency = 1
+            label.Font = Enum.Font.GothamMedium; label.TextSize = 12
+            label.TextWrapped = true
+            label.TextStrokeTransparency = 0.2; label.RichText = false; label.Parent = gui
+            marker = {gui = gui, label = label}; markers[row.key] = marker
+        end
+        local anchor = row.anchor
+        if not anchor then
+            if not markerFolder then
+                markerFolder = Instance.new("Folder"); markerFolder.Name = "CloverQuestPoints"
+                markerFolder.Parent = workspace
+            end
+            anchor = anchors[row.key]
+            if not anchor then
+                anchor = Instance.new("Part"); anchor.Name = "QuestPoint"
+                anchor.Size = Vector3.new(0.1, 0.1, 0.1); anchor.Anchored = true
+                anchor.Transparency = 1; anchor.CanCollide = false
+                anchor.CanTouch = false; anchor.CanQuery = false
+                anchor.Parent = markerFolder; anchors[row.key] = anchor; marker.position = nil
+            end
+            if marker.position ~= row.position then
+                anchor.Position = row.position; marker.position = row.position
+            end
+        elseif anchors[row.key] then anchors[row.key]:Destroy(); anchors[row.key] = nil end
+        if marker.anchor ~= anchor then marker.gui.Adornee = anchor; marker.anchor = anchor end
+        if marker.kind ~= row.kind then marker.label.TextColor3 = colors[row.kind]; marker.kind = row.kind end
+        local distance = math.floor(row.distance)
+        if marker.questName ~= row.questName or marker.taskName ~= row.taskName or marker.count ~= row.count
+            or marker.detail ~= row.detail or marker.distance ~= distance then
+            marker.label.Text = row.questName .. "\n" .. row.taskName .. row.count
+                .. "\n" .. row.detail .. " · " .. tostring(distance) .. " studs"
+            marker.questName = row.questName; marker.taskName = row.taskName; marker.count = row.count
+            marker.detail = row.detail; marker.distance = distance
+        end
+        if row.object and CFG.chams then
+            if not marker.highlight then
+                local highlight = Instance.new("Highlight")
+                highlight.Name = "CloverQuestOutline"; highlight.FillTransparency = 0.85
+                highlight.OutlineTransparency = 0.1
+                highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop; highlight.Parent = layer
+                marker.highlight = highlight
+            end
+            if marker.highlightObject ~= row.object then
+                marker.highlight.Adornee = row.object; marker.highlightObject = row.object
+            end
+            if marker.highlightKind ~= row.kind then
+                marker.highlight.FillColor = colors[row.kind]; marker.highlight.OutlineColor = colors[row.kind]
+                marker.highlightKind = row.kind
+            end
+            if marker.highlightEnabled ~= true then marker.highlight.Enabled = true; marker.highlightEnabled = true end
+        elseif marker.highlight and marker.highlightEnabled ~= false then
+            marker.highlight.Enabled = false; marker.highlightEnabled = false
+        end
+    end
+    function QuestESP.step()
+        if not CFG.questESP or not S.alive or not layer or not layer.Parent then QuestESP.clear(); return end
+        local now = os.clock()
+        if now < nextScan then return end
+        nextScan = now + 0.5 -- 2 Hz: quest phase, inventory and stream-in reads; no Workspace descendants scan.
+        local char = LocalPlayer.Character
+        local root = char and rootOf(char)
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not root or not hum or hum.Health <= 0 then
+            QuestESP.clear(); QuestESP.status = "Waiting for living character"; return
+        end
+        local quests = LocalPlayer:FindFirstChild("Quests")
+        local inventory = LocalPlayer:FindFirstChild("Inventory")
+        if not quests then QuestESP.clear(); QuestESP.status = "Waiting for quest data"; return end
+        local rows, active, covered, byObject = {}, {}, {}, {}
+        local activeCount, waiting, clipped = 0, 0, false
+        local tagged = {}
+        local function tags(name)
+            if not tagged[name] then tagged[name] = Collection:GetTagged(name) end
+            return tagged[name]
+        end
+        local function add(key, taskRow, kind, object, position, detail)
+            local anchor
+            if object then
+                if not worldObject(object) then return end
+                anchor = rootOf(object)
+                if not anchor then return end
+                position = anchor.Position
+                if byObject[object] and byObject[object][taskRow.task] then return end
+            end
+            if not point(position, object ~= nil) then return end
+            local distance = (position - root.Position).Magnitude
+            if not finite(distance) then return end
+            covered[taskRow.task] = true
+            if object then
+                byObject[object] = byObject[object] or {}; byObject[object][taskRow.task] = true
+            end
+            if #rows >= 1024 then clipped = true; return end
+            rows[#rows + 1] = {key = key, object = object, anchor = anchor, position = position,
+                task = taskRow.task, questName = taskRow.questName, taskName = taskRow.taskName,
+                count = taskRow.count, kind = kind, detail = detail, distance = distance, order = #rows + 1}
+        end
+        for qi, quest in ipairs(quests:GetChildren()) do
+            if qi > 128 then clipped = true; break end
+            local tasks = quest:FindFirstChild("Tasks")
+            if tasks and not quest:GetAttribute("Completed") then
+                local allDone, taskCount = true, 0
+                local questName = quest:GetAttribute("Quest")
+                if type(questName) ~= "string" or questName == "" then questName = quest.Name end
+                for ti, taskData in ipairs(tasks:GetChildren()) do
+                    if ti > 128 then allDone = false; clipped = true; break end
+                    taskCount += 1
+                    local value, maximum = progress(taskData, inventory)
+                    if value < maximum then
+                        allDone = false
+                        if not taskData:GetAttribute("Hidden") then
+                            local taskRow = {task = taskData, quest = quest, questName = questName,
+                                taskName = taskData.Name, count = " [" .. tostring(math.floor(value)) .. "/"
+                                    .. tostring(math.floor(maximum)) .. "]"}
+                            active[quest.Name] = active[quest.Name] or {}
+                            active[quest.Name][taskData.Name] = taskRow; activeCount += 1
+                            local position = point(taskData:GetAttribute("TrackPosition"))
+                            if CFG.questLocations and position then
+                                local radius = taskData:GetAttribute("TrackRadius")
+                                add(taskData, taskRow, "location", nil, position,
+                                    finite(radius) and radius > 0 and ("Search area (" .. tostring(math.floor(radius)) .. " studs)")
+                                        or "Task destination")
+                            end
+                            local name = taskData:GetAttribute("Object")
+                            local closest = type(name) == "string" and name ~= "" and Collection:HasTag(taskData, "TrackClosest")
+                            local isMaterial = taskData:GetAttribute("TaskType") == "Collect"
+                            local material = isMaterial and materialTags[name]
+                            if type(name) == "string" and name ~= "" and (closest or material) then
+                                local enabled = isMaterial and CFG.questMaterials or not isMaterial and CFG.questPickups
+                                if enabled then
+                                    local nearest, nearestDistance
+                                    for oi, object in ipairs(tags(material or name)) do
+                                        if oi > 1024 then clipped = true; break end
+                                        local anchor = worldObject(object) and rootOf(object)
+                                        if anchor and point(anchor.Position, true)
+                                            and (not isMaterial or not object:GetAttribute("Gathered") and not object:GetAttribute("Hidden")) then
+                                            local d = (anchor.Position - root.Position).Magnitude
+                                            if not closest then add(object, taskRow, "material", object, nil, "Harvest node")
+                                            elseif not nearestDistance or d < nearestDistance then nearest = object; nearestDistance = d end
+                                        end
+                                    end
+                                    if nearest then add(nearest, taskRow, isMaterial and "material" or "pickup", nearest, nil, "Nearest tagged target") end
+                                end
+                            end
+                        end
+                    end
+                end
+                if CFG.questLocations and allDone and taskCount > 0 then
+                    local position = point(quest:GetAttribute("ReturnPosition"))
+                    if position then
+                        local name = quest:GetAttribute("ReturnNPC")
+                        local taskRow = {task = quest, questName = questName,
+                            taskName = "Return to " .. (type(name) == "string" and name ~= "" and name or quest.Name), count = ""}
+                        add(quest, taskRow, "returnPoint", nil, position, "Turn in quest")
+                    end
+                end
+            end
+        end
+        if CFG.questPickups then
+            -- Native ManaVision W1044:97-123 identifies exact accepted task and per-object collected records.
+            local function hinted(object)
+                local questKey, taskName = object:GetAttribute("HintQuest"), object:GetAttribute("HintTask")
+                local taskRow = active[questKey] and active[questKey][taskName]
+                if not taskRow then return end
+                local objects = taskRow.quest:FindFirstChild("Objects")
+                if objects and objects:FindFirstChild(object.Name) then return end
+                add(object, taskRow, "pickup", object, nil, "Quest object")
+            end
+            for i, object in ipairs(tags("ManaHint")) do
+                if i > 1024 then clipped = true; break end
+                hinted(object)
+            end
+            local objects = workspace:FindFirstChild("Objects")
+            local folders = objects and objects:FindFirstChild("QuestObjects")
+            for _, spec in ipairs(pickups) do
+                local taskRow = active[spec[1]] and active[spec[1]][spec[2]]
+                local folder = taskRow and folders and folders:FindFirstChild(spec[3])
+                if folder then
+                    for i, object in ipairs(folder:GetChildren()) do
+                        if i > 128 then clipped = true; break end
+                        local hintQuest, hintTask = object:GetAttribute("HintQuest"), object:GetAttribute("HintTask")
+                        if hintQuest or hintTask then hinted(object)
+                        else add(object, taskRow, "pickup", object, nil, "Quest pickup") end
+                    end
+                end
+            end
+        end
+        for _, questTasks in pairs(active) do
+            for _, taskRow in pairs(questTasks) do if not covered[taskRow.task] then waiting += 1 end end
+        end
+        table.sort(rows, function(a, b)
+            if a.distance == b.distance then return a.order < b.order end
+            return a.distance < b.distance
+        end)
+        local selected, shown = {}, 0
+        for _, row in ipairs(rows) do
+            if row.distance <= CFG.range and shown < CFG.limit then
+                -- A pickup can satisfy multiple tasks; use one marker and keep nearest stable task text.
+                if not selected[row.key] then selected[row.key] = true; shown += 1; paint(row) end
+            end
+        end
+        for key in pairs(markers) do if not selected[key] then remove(key) end end
+        QuestESP.shown = shown; QuestESP.available = #rows; QuestESP.waiting = waiting
+        QuestESP.status = tostring(shown) .. "/" .. tostring(#rows) .. " quest markers · "
+            .. tostring(activeCount) .. " active tasks · " .. tostring(waiting) .. " without enabled target"
+            .. (clipped and " · scan cap reached" or "")
+    end
+end
+-- QUEST_ESP_END
+
 local function broomStep()
     broomStatus = "OFF"
     local char = LocalPlayer.Character
@@ -2493,6 +2808,7 @@ local AutoParry = (function()
         ["11893001175"] = {0.433333337}, -- Zombie2
         ["11893004134"] = {0.600000024}, -- ZombieKnockback
     }
+    api.hitWindows = hitWindows -- shared read-only attack-cue catalog; independent indicator
     local nextScan, nextTick, nextSend, lastDecision, serial, actorSerial = 0, 0, 0, nil, 0, 0
     local queue, dropped, bytes, part, prefix, logPath = {}, 0, 0, 0, nil, nil
     local nextFlush, nextSummary, lastCue, lastRequest = 0, 0, nil, nil
@@ -2922,6 +3238,239 @@ local AutoParry = (function()
     return api
 end)()
 -- Passive near-NPC animation/state correlation. Never invokes combat callbacks.
+-- MOB_INDICATOR_BEGIN: replicated observations, never a server attack schedule.
+-- W0840:193-225,233-267 publishes/holds State_ and StateEnd_; 707-745
+-- distinguishes native action locks, relaxed actions and HyperArmor exceptions.
+-- Rungs 1-2 only: no game calls/writes, input or new animation asset requests.
+local MobIndicator
+do
+    local api = {status = "OFF", shown = 0, tracked = 0, limited = false}
+    local owned, targets, nextScan, nextTick = {}, {}, 0, 0
+    local scanLimited = false
+    local colors = {danger = Color3.fromRGB(255, 100, 95), warning = Color3.fromRGB(255, 195, 80),
+        lock = Color3.fromRGB(110, 195, 255), unknown = Color3.fromRGB(200, 205, 215)}
+    local actionLocks = {"Locked", "Disabled", "CantStrike"}
+    local function number(v) return type(v) == "number" and v == v and math.abs(v) < math.huge end
+    local function remaining(attrs, name, now)
+        if attrs["State_" .. name] ~= true then return nil end
+        local ending = attrs["StateEnd_" .. name]
+        if number(ending) then return math.max(0, ending - now) end
+        return false -- active without a replicated expiry, never zero/ready
+    end
+    local function seconds(value) return ("%.1fs"):format(value) end
+    function api.read(model, tracks, now)
+        local attrs = model:GetAttributes()
+        local active = attrs.State_Attacking == true or attrs.State_Swinging == true
+            or attrs.State_SkillActive == true or attrs.State_Using_Skill == true
+        local eta, mapped, paused = nil, false, false
+        for i, track in ipairs(tracks) do
+            if i > 24 then break end
+            if track.IsPlaying then
+                local animation = track.Animation
+                local id = animation and tostring(animation.AnimationId):match("(%d+)$")
+                local hits = id and AutoParry.hitWindows[id]
+                if hits then
+                    mapped = true
+                    local position, speed = track.TimePosition, track.Speed
+                    if number(position) and number(speed) and speed > 0 then
+                        for j, marker in ipairs(hits) do
+                            if j > 16 then break end
+                            local delta = (marker - position) / speed
+                            if delta >= -0.025 and (not eta or delta < eta) then eta = math.max(0, delta) end
+                        end
+                    elseif speed == 0 then paused = true end
+                end
+            end
+        end
+        local cooldowns, count = {}, 0
+        for key, value in pairs(attrs) do
+            count += 1; if count > 256 then break end
+            local name = type(key) == "string" and key:match("^State_(.+Cooldown)$")
+            if name and value == true then
+                local rem = remaining(attrs, name, now)
+                cooldowns[#cooldowns + 1] = {name = name:gsub("_", " "), rem = rem}
+            end
+        end
+        if #cooldowns > 1 then
+            table.sort(cooldowns, function(a, b)
+                local x, y = type(a.rem) == "number" and a.rem or math.huge,
+                    type(b.rem) == "number" and b.rem or math.huge
+                return x < y or (x == y and a.name < b.name)
+            end)
+        end
+        local detail = {}
+        for i = 1, math.min(2, #cooldowns) do
+            local cd = cooldowns[i]
+            detail[#detail + 1] = cd.name .. ": " .. (cd.rem == false and "untimed"
+                or (cd.rem == 0 and "elapsed / held" or seconds(cd.rem)))
+        end
+        local suffix = #detail > 0 and table.concat(detail, " · ") or "No published ability cooldown"
+        -- HitWindow says when the clip can hit, never when its hazards end.
+        -- Keep the entire playing attack dangerous, including all multihits.
+        if mapped or active then
+            if eta then return "PULL BACK · hit cue " .. seconds(eta), suffix, "danger" end
+            return paused and "ATTACK PAUSED · timing unknown" or
+                (mapped and "ATTACK ACTIVE · hazard end unknown" or "ATTACK ACTIVE · unmapped timing"), suffix, "danger"
+        end
+        -- These are CanAction blockers, not proof every server AI path uses
+        -- CanAction. Do not call their interval SAFE or infer hazard despawn.
+        local locked, lockName, held, untimed
+        for _, name in ipairs(actionLocks) do
+            local rem = remaining(attrs, name, now)
+            if rem ~= nil then
+                if rem == false then untimed = true
+                elseif rem == 0 then held = true
+                elseif not locked or rem < locked then locked, lockName = rem, name end
+            end
+        end
+        if locked then
+            local label = lockName == "CantStrike" and "Strike lock" or "Action lock"
+            if locked <= CFG.mobWarnLead then
+                return "PULL BACK · " .. label:lower() .. " ends " .. seconds(locked),
+                    "Readiness warning; next attack time unknown · " .. suffix, "warning"
+            end
+            return label:upper() .. " " .. seconds(locked), "Other attacks/hazards unverified · " .. suffix, "lock"
+        end
+        if held or untimed then
+            return held and "LOCK HELD · timer elapsed" or "LOCK ACTIVE · expiry unknown",
+                "Other attacks/hazards unverified · " .. suffix, "unknown"
+        end
+        if attrs.State_Stunned == true or attrs.State_Parried == true then
+            return "STAGGERED · attack readiness unknown", "HyperArmor / relaxed actions can bypass stagger · " .. suffix, "unknown"
+        end
+        return "NO ATTACK CUE · readiness unknown", suffix, "unknown"
+    end
+    local function remove(model)
+        local item = owned[model]
+        if item then item.gui:Destroy(); owned[model] = nil end
+    end
+    function api.clear()
+        for model in pairs(owned) do remove(model) end
+        table.clear(targets)
+        api.shown = 0; api.tracked = 0; api.limited = false; nextScan = 0; nextTick = 0
+        scanLimited = false
+        api.status = "OFF"
+    end
+    api.destroy = api.clear
+    local function combatModel(object)
+        for _ = 1, 6 do
+            if not object or object == workspace then return nil end
+            if object:IsA("Model") and object:FindFirstChildOfClass("Humanoid") then
+                if object == LocalPlayer.Character then return nil end
+                if type(Players.GetPlayerFromCharacter) == "function" and Players:GetPlayerFromCharacter(object) then return nil end
+                return object
+            end
+            object = object.Parent
+        end
+        return nil
+    end
+    local function scan(localRoot)
+        local found, seen, distances = {}, {}, {}
+        api.limited = false
+        local function add(object)
+            local model = combatModel(object)
+            if model and not seen[model] then
+                seen[model] = true
+                found[#found + 1] = model
+                local root = rootOf(model)
+                distances[model] = root and (root.Position - localRoot.Position).Magnitude or math.huge
+            end
+        end
+        local folder = workspace:FindFirstChild("FightableNPCS")
+        if folder then
+            local pending, cursor, visited = {folder}, 1, 0
+            while pending[cursor] and visited < 2048 do
+                local parent = pending[cursor]; cursor += 1
+                for _, object in ipairs(parent:GetChildren()) do
+                    visited += 1
+                    if visited > 2048 then api.limited = true; break end
+                    if object:IsA("Folder") then pending[#pending + 1] = object
+                    else add(object) end
+                end
+            end
+            if pending[cursor] then api.limited = true end
+        end
+        for i, object in ipairs(Collection:GetTagged("ShowIndicator")) do
+            if i > 512 then api.limited = true; break end
+            add(object)
+        end
+        -- Choose nearest after enumeration; a distant first batch must not
+        -- starve a nearby boss simply because of folder insertion order.
+        table.sort(found, function(a, b)
+            return distances[a] < distances[b]
+        end)
+        if #found > 256 then api.limited = true end
+        for i = #found, 257, -1 do found[i] = nil end
+        targets = found; api.tracked = #found; scanLimited = api.limited
+    end
+    local function marker(model, root)
+        local item = owned[model]
+        if item then
+            if item.root ~= root then item.gui.Adornee = root; item.root = root end
+            return item
+        end
+        local gui = Instance.new("BillboardGui")
+        gui.Name = "CloverAttackIndicator"; gui.AlwaysOnTop = true
+        gui.Size = UDim2.fromOffset(340, 85); gui.StudsOffset = Vector3.new(0, 6, 0)
+        gui.MaxDistance = CFG.mobIndicatorRange; gui.Adornee = root; gui.Parent = layer
+        local label = Instance.new("TextLabel")
+        label.Name = "AttackStatus"; label.Size = UDim2.fromScale(1, 1); label.BackgroundTransparency = 1
+        label.TextSize = 12; label.TextWrapped = true; label.Font = Enum.Font.GothamMedium
+        label.TextStrokeTransparency = 0.2; label.RichText = false; label.Parent = gui
+        item = {gui = gui, label = label, root = root, range = CFG.mobIndicatorRange}; owned[model] = item
+        return item
+    end
+    function api.step()
+        if not CFG.mobIndicators or not S.alive then api.clear(); return end
+        local char = LocalPlayer.Character
+        local root = char and rootOf(char)
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not root or not hum or hum.Health <= 0 or not layer or not layer.Parent then
+            api.clear(); api.status = "Waiting for character"; return
+        end
+        local clock = os.clock()
+        if clock < nextTick then return end
+        nextTick = clock + 0.1
+        if clock >= nextScan then scan(root); nextScan = clock + 1 end
+        api.limited = scanLimited -- draw truncation is current, separate from the last scan's cap
+        local now, shown, keep, nearby = workspace:GetServerTimeNow(), 0, {}, {}
+        for _, model in ipairs(targets) do
+            local other = model.Parent and rootOf(model)
+            local otherHum = other and model:FindFirstChildOfClass("Humanoid")
+            if other and other.Parent and otherHum and otherHum.Health > 0 then
+                local distance = (other.Position - root.Position).Magnitude
+                if distance <= CFG.mobIndicatorRange then
+                    nearby[#nearby + 1] = {model = model, root = other, hum = otherHum, distance = distance}
+                end
+            end
+        end
+        table.sort(nearby, function(a, b) return a.distance < b.distance end)
+        for i, row in ipairs(nearby) do
+            if i > 64 then api.limited = true; break end
+            local animator = row.hum:FindFirstChildOfClass("Animator")
+            local tracks = animator and animator:GetPlayingAnimationTracks() or {}
+            local headline, detail, color = api.read(row.model, tracks, now)
+            local item = marker(row.model, row.root)
+            if item.range ~= CFG.mobIndicatorRange then
+                item.gui.MaxDistance = CFG.mobIndicatorRange; item.range = CFG.mobIndicatorRange
+            end
+            local name, distance = row.model.Name, ("%.0f"):format(row.distance)
+            if item.name ~= name or item.distance ~= distance or item.headline ~= headline or item.detail ~= detail then
+                item.label.Text = name .. " · " .. distance .. " studs\n" .. headline .. "\n" .. detail
+                item.name = name; item.distance = distance; item.headline = headline; item.detail = detail
+            end
+            if item.color ~= color then item.label.TextColor3 = colors[color]; item.color = color end
+            keep[row.model] = true; shown += 1
+        end
+        for model in pairs(owned) do if not keep[model] then remove(model) end end
+        api.shown = shown
+        api.status = tostring(shown) .. " indicators · " .. tostring(api.tracked) .. " streamed mobs"
+            .. (api.limited and " · nearest 64 / scan cap" or "") .. " · unknown AI schedule stays labelled"
+    end
+    MobIndicator = api
+end
+-- MOB_INDICATOR_END
+
 local DefenseCapture = (function()
     local api, owned, nextScan = {}, {}, 0
     local function release(object)
@@ -3269,6 +3818,9 @@ Armor = (function()
 end)()
 local function panic()
     CFG.esp = false; CFG.fullbright = false; CFG.movement = false; CFG.record = false
+    CFG.noCarrySlowdown = false
+    CFG.mobIndicators = false
+    CFG.questESP = false
     CFG.autoArmor = false; Armor.stop()
     CFG.revealMap = false; QuestAssist.cancel()
     CFG.autoMine = false; CFG.autoHarvest = false; CFG.autoStart = false; CFG.broomSpeed = false; CFG.broomDelay = false
@@ -3290,7 +3842,7 @@ local function destroy()
     for _, c in ipairs(observerConns) do pcall(function() c:Disconnect() end) end
     clearMarkers(); releaseEnvironment(); releaseMovement(); releaseMaterials(); releaseBroom(); Climb.release(); Dash.release()
     TownTravel.cancel(); NativeCursor.release(); DefenseCapture.release(); AutoParry.release("unload"); BroomFlex.release()
-    Advanced.release(); Armor.stop(); QuestAssist.cancel()
+    Advanced.release(); Carry.release(); MobIndicator.destroy(); QuestESP.destroy(); Armor.stop(); QuestAssist.cancel()
     if Shell then Shell.destroy() end
     if layer then layer:Destroy() end
     if G[GKEY] == S then G[GKEY] = nil end
@@ -3309,6 +3861,9 @@ S.setAutoArmor = function(enabled)
     return Armor.status
 end
 S.snapshot = function() return { build = BUILD_VERSION, shown = S.shown, discovered = S.discovered, vitals = vitals(),
+    carry = Carry.status,
+    mobIndicators = MobIndicator.status,
+    questESP = QuestESP.status,
     defense = defenseState(), latest = S.latest, events = S.events, movement = S.movementStatus,
     materials = materialStatus, broom = broomStatus, climb = Climb.status, dash = Dash.status, loot = lootStatus,
     hymn = QuestAssist.status, map = QuestAssist.mapStatus, travel = TownTravel.status,
@@ -3333,139 +3888,185 @@ local function boot()
     local p = Shell.page("Awareness")
     W.section(p, "World ESP")
     W.toggle(p, {label = "ESP", key = "esp", set = requestApply})
-    for _, spec in ipairs({{"enemies", "Combat NPCs"}, {"indicators", "Boss / elite indicators"},
+    for _, spec in ipairs({{"enemies", "Combat NPCs"}, {"indicators", "Special NPC indicators"},
         {"players", "Other players"}, {"npcs", "Dialogue / quest NPCs"}, {"ores", "Ore nodes"},
-        {"crops", "Crop nodes"}, {"wood", "Wood piles (buy)"}, {"waypoints", "Waypoints"}, {"chams", "Through-wall outlines"}}) do
+        {"crops", "Crop nodes"}, {"wood", "Wood piles (buy)"}, {"waypoints", "Waypoints"}}) do
         W.toggle(p, {label = spec[2], key = spec[1], set = requestApply})
     end
-    W.slider(p, {label = "Range (studs)", key = "range", min = 150, max = 9000, step = 50, set = requestApply})
+    W.section(p, "Display and range")
+    W.toggle(p, {label = "Through-wall outlines", key = "chams", set = requestApply})
+    W.slider(p, {label = "Shared ESP range (studs)", key = "range", min = 150, max = 9000, step = 50, set = requestApply})
     W.toggle(p, {label = "Mob / player health bars", key = "healthBars", set = requestApply})
-    W.slider(p, {label = "Health bar distance", key = "healthRange", min = 50, max = 3000, step = 50, set = requestApply})
-    W.slider(p, {label = "Marker budget", key = "limit", min = 8, max = 64, step = 1, set = requestApply})
+    W.slider(p, {label = "Health bar range (studs)", key = "healthRange", min = 50, max = 3000, step = 50, set = requestApply})
+    W.slider(p, {label = "Markers on screen", key = "limit", min = 8, max = 64, step = 1, set = requestApply})
     local searchRow = W.row(p, 36)
-    W.search(searchRow, {placeholder = "Filter names (literal text)", text = CFG.filter,
+    W.search(searchRow, {placeholder = "Filter names", text = CFG.filter,
         changed = function(text) CFG.filter = tostring(text):sub(1, 64); scheduleSave() end})
     W.statusRow(p, function() return ("%d markers · %d discovered%s"):format(S.shown, S.discovered, S.overflow and " · discovery cap reached" or "") end)
-    W.note(p, "Streamed objects only. NPCs may be neutral; indicator tag does not prove boss status. Chest spawn points are not live loot.")
+    W.note(p, "Streamed objects only. Special indicators do not prove boss status; some NPCs are neutral.")
+    W.note(p, "Chest spawns do not mean live loot. Range, marker limit and outlines also apply to quest ESP.")
     p = Shell.page("Teleports")
     W.section(p, "Towns · approximate progression order")
-    W.note(p, "Uses the game's server-controlled waypoint travel, not forced coordinate jumps. No exact town level requirements were found; the order below is a rough guide, not a level gate.")
-    W.button(p, "Refresh waypoint unlocks", "One native GetData request; nothing happens automatically", function() TownTravel.request() end)
+    W.note(p, "Town order is a rough guide. Unlocks and travel eligibility come from the game.")
+    W.button(p, "Refresh waypoint unlocks", "Refresh known destinations; no automatic travel", function() TownTravel.request() end)
     W.statusRow(p, function() return TownTravel.status end)
     for _, town in ipairs(TownTravel.towns) do
         local destination = town
         W.section(p, destination.tier)
-        W.button(p, "Travel to " .. destination.name, "Native waypoint request · must be unlocked", function() TownTravel.request(destination.id) end)
+        W.button(p, "Travel to " .. destination.name, "Request travel to this unlocked waypoint", function() TownTravel.request(destination.id) end)
         W.statusRow(p, function() return destination.name .. " · " .. TownTravel.label(destination.id) end)
     end
-    W.note(p, "Refresh unlocks, then request native travel from your current position. Server unlock/quest/combat rules still decide acceptance; there are no forced coordinate jumps or automatic retries. Swamp is the fourth native travel destination, not a town.")
+    W.note(p, "Travel obeys unlock, quest and combat checks. No forced movement or automatic retries.")
+    W.note(p, "Swamp is the fourth waypoint destination, not a town.")
     p = Shell.page("Quest assistance")
+    W.section(p, "Quest objective ESP")
+    W.toggle(p, {label = "Quest objective ESP", key = "questESP", set = requestApply,
+        desc = "Find active quest targets, pickups and turn-ins"})
+    W.toggle(p, {label = "Quest pickups", key = "questPickups", set = requestApply,
+        desc = "Wheels, paddle, lanterns, glasses, bucket and quest items"})
+    W.toggle(p, {label = "Destinations / search areas / turn-ins", key = "questLocations", set = requestApply})
+    W.toggle(p, {label = "Quest material nodes", key = "questMaterials", set = requestApply,
+        desc = "Known harvest nodes needed by an active collection task"})
+    W.statusRow(p, function() return QuestESP.status end)
+    W.note(p, "Active quests only. Hidden/completed tasks disappear; missing targets stay waiting.")
+    W.note(p, "Search markers are destinations, not pickups. Range, limit and outlines use Awareness settings.")
+    W.note(p, "Quest markers work while World ESP is OFF.")
     W.section(p, "Quest map")
     W.toggle(p, {label = "Full map + quest givers", key = "revealMap", set = requestApply,
-        desc = "Display-only reveal on the normal map key; keeps real exploration untouched"})
+        desc = "Show the normal map; keeps actual exploration untouched"})
     W.statusRow(p, function() return QuestAssist.mapStatus end)
-    W.note(p, "Shows known native quest-giver markers beyond explored regions. Yellow = one-time, cyan = repeatable, grey = in progress. Unstreamed NPCs may be missing; this does not accept or complete quests.")
+    W.note(p, "Known quest givers beyond explored regions: yellow one-time, cyan repeatable, grey in progress.")
+    W.note(p, "Unstreamed givers may be absent. Map reveal does not accept or complete quests.")
     W.section(p, "Ancient hymn · Church")
     W.button(p, "Solve ancient hymn", "Open the book nearby first; arrange the six symbols and submit once", QuestAssist.request)
     W.statusRow(p, function() return QuestAssist.status end)
-    W.note(p, "Poem order: Earth, Wind, Light, Flame, Shadow, Water. Requires the open hymn within 15 studs. Completion is reported only after the native server confirmation.")
+    W.note(p, "Poem order: Earth, Wind, Light, Flame, Shadow, Water.")
+    W.note(p, "Open the book within 15 studs. Completion needs server confirmation.")
     p = Shell.page("Vision")
     W.section(p, "Adaptive fullbright")
     W.toggle(p, {label = "Fullbright", key = "fullbright", set = requestApply,
-        desc = "Daylight, fog removal, neutral colors and clear postprocessing"})
+        desc = "Daylight, fog removal and neutral colors"})
     W.slider(p, {label = "Brightness", key = "brightness", min = 1, max = 4, step = 0.1, set = requestApply})
     W.slider(p, {label = "Exposure", key = "exposure", min = -1, max = 1, step = 0.1, set = requestApply})
-    W.note(p, "Keeps combat warning effects. New weather/camera effects are handled; OFF restores owned fields to the last observed game values.")
+    W.note(p, "Keeps combat warnings. OFF restores the latest game weather and lighting values.")
     p = Shell.page("Movement")
-    W.section(p, "Native client prediction")
-    W.toggle(p, {label = "Local swiftness", key = "movement", set = requestApply,
-        desc = "Native potion consumer; 225s window, not proven server movement"})
+    W.section(p, "Walking and carry weight")
+    W.toggle(p, {label = "Swiftness", key = "movement", set = requestApply,
+        desc = "225-second speed boost; server acceptance is untested"})
     W.slider(p, {label = "Swiftness bonus", key = "speed", min = 0, max = 4.5, step = 0.5,
         set = requestApply})
     W.statusRow(p, function() return S.movementStatus end)
-    W.note(p, "Uses the highest cited base potion tier. Respects native movement locks and yields on game updates.")
-    W.toggle(p, {label = "No climb cooldown (native airborne latch)", key = "climb", set = requestApply,
-        hint = "Manual input only. Keeps native state, wall/ledge checks and timers. Server motion acceptance unverified."})
+    W.note(p, "Swiftness respects movement locks and yields to game updates.")
+    W.toggle(p, {label = "No carry slowdown", key = "noCarrySlowdown", set = requestApply,
+        desc = "Removes the local 20% weight speed penalty"})
+    W.statusRow(p, function() return Carry.status end)
+    W.note(p, "Carry capacity stays server-controlled.")
+    W.section(p, "Climbing and dashing")
+    W.toggle(p, {label = "No local climb cooldown", key = "climb", set = requestApply,
+        desc = "Manual climb; wall/ledge checks and locks remain"})
     W.statusRow(p, function() return Climb.status end)
-    W.toggle(p, {label = "Chain dashes (no local post-dash wait)", key = "dash", set = requestApply,
-        hint = "Manual dash key only. Repeats as soon as native motion ends, without waiting for DashCooldown/Dodging. Keeps combat locks; server cooldown and i-frames are not bypassed."})
+    W.toggle(p, {label = "Chain dashes", key = "dash", set = requestApply,
+        desc = "Manual dash; keeps combat locks and server cooldowns"})
     W.statusRow(p, function() return Dash.status end)
-    W.section(p, "Dump-backed advanced movement")
-    W.toggle(p, {label = "No fall damage (local report)", key = "noFall", set = requestApply,
-        hint = "Maintains the native DisableFallDamage flag. Server damage protection is unverified."})
+    W.note(p, "Chains once dash motion ends. Extra invincibility is not provided.")
+    W.section(p, "Ground movement")
+    W.toggle(p, {label = "No local fall-damage report", key = "noFall", set = requestApply,
+        desc = "Local fall flag only; server protection is unverified"})
     W.statusRow(p, function() return Advanced.noFall end)
-    W.toggle(p, {label = "Chain slide (no local cooldown)", key = "chainSlide", set = requestApply,
-        hint = "Manual slide only. Keeps sprint, ground, active-slide and native eligibility checks."})
+    W.toggle(p, {label = "Chain slides", key = "chainSlide", set = requestApply,
+        desc = "Manual slide; sprint/ground/active-slide checks remain"})
     W.statusRow(p, function() return Advanced.chainSlide end)
-    W.toggle(p, {label = "No combat slowdown (M1 / abilities / guard)", key = "combatMove", set = requestApply,
-        hint = "Keeps native walk/sprint pace during self-actions and removes guard/soft penalties. Real incapacitation, frozen, block-broken and normal flight/crouch/swim stay native. Server acceptance unverified."})
+    W.toggle(p, {label = "No attack / guard slowdown", key = "combatMove", set = requestApply,
+        desc = "Keeps your walk/sprint pace during attacks and guard"})
     W.statusRow(p, function() return Advanced.combatMove end)
-    W.note(p, "Dump-only adapters: no live session was available. An unknown or changed native shape makes no change; inspect the status row. OFF restores only owned fields.")
-    W.section(p, "Native broom controls")
+    W.note(p, "Unavailable movement adapters pause; check status. OFF restores only owned changes.")
+    W.note(p, "Needs in-game testing. Stun, freeze, block-break, flight, crouch and swim rules remain.")
+    W.section(p, "Broom flight")
     W.toggle(p, {label = "Broom speed boost", key = "broomBoost", set = requestApply,
-        hint = "Extra native base-speed bonus. OFF restores the native profession bonus; steering and flight gates stay native."})
-    W.slider(p, {label = "Extra base flight speed (%)", key = "broomBonus", min = 0, max = 200, step = 5, set = requestApply})
+        desc = "Extra base speed; steering and flight gates remain"})
+    W.slider(p, {label = "Extra base speed (%)", key = "broomBonus", min = 0, max = 200, step = 5, set = requestApply})
     W.statusRow(p, function() return Advanced.broomBoost end)
-    W.toggle(p, {label = "Broom Tailwind speed (+15%)", key = "broomSpeed", set = requestApply,
-        desc = "Uses the native speed consumer; no click teleport or CFrame jumps"})
-    W.toggle(p, {label = "No local broom cooldown (normal key / F7)", key = "broomDelay", set = function() BroomFlex.apply(); requestApply() end,
-        desc = "Saved choice. Native manual mount/dismount; removes 1s input debounce, not server locks."})
+    W.toggle(p, {label = "Broom Tailwind (+15%)", key = "broomSpeed", set = requestApply,
+        desc = "Normal Tailwind speed bonus"})
+    W.toggle(p, {label = "No local broom cooldown", key = "broomDelay", set = function() BroomFlex.apply(); requestApply() end,
+        desc = "Normal broom key / F7; removes the local 1s input wait"})
     W.statusRow(p, function() return broomStatus end)
     W.statusRow(p, function() return BroomFlex.cooldown end)
-    W.toggle(p, {label = "Lift broom altitude ceiling (client)", key = "broomAltitude", set = function() BroomFlex.apply(); requestApply() end,
-        hint = "Removes the practical local ascent/ceiling pull-down limit. No-fly zones, water, combat and server checks remain."})
+    W.toggle(p, {label = "Lift local broom ceiling", key = "broomAltitude", set = function() BroomFlex.apply(); requestApply() end,
+        desc = "Higher ascent; no-fly, water and combat checks remain"})
     W.statusRow(p, function() return BroomFlex.altitude end)
-    W.note(p, "Speed bonus stacks with Tailwind; +100% adds one base-speed unit. Altitude uses a finite high native cap, not a new flight motor. OFF restores the latest owned profession value. No no-fly/combat bypass or direct velocity writes; server acceptance is unverified.")
+    W.note(p, "Speed boost stacks with Tailwind; +100% adds one base-speed unit.")
+    W.note(p, "Altitude uses normal flight. OFF restores owned values; server acceptance is untested.")
     p = Shell.page("Materials")
-    W.section(p, "Native material minigames")
+    W.section(p, "Gathering assistants")
     W.toggle(p, {label = "Auto mine critical timing", key = "autoMine", set = requestApply,
-        desc = "Starts ready Mining challenges and presses native critical timing"})
-    W.toggle(p, {label = "Auto harvest ring steering", key = "autoHarvest", set = requestApply,
-        desc = "Exclusive ring aim while active; mouse cannot override; native turn limits and cancel stay intact"})
+        desc = "Starts ready Mining trials and times the critical press"})
+    W.toggle(p, {label = "Auto harvest ring aim", key = "autoHarvest", set = requestApply,
+        desc = "Steers active rings; normal smoothing and cancel remain"})
     W.toggle(p, {label = "Auto start nearby nodes", key = "autoStart", set = requestApply,
-        desc = "Native prompt holds only, within prompt range and line of sight"})
+        desc = "Starts nearby visible nodes within normal range"})
     W.statusRow(p, function() return materialStatus end)
     W.statusRow(p, function() return ("Saved choices: Mine %s · Harvest %s · Auto start %s"):format(
         CFG.autoMine and "ON" or "OFF", CFG.autoHarvest and "ON" or "OFF", CFG.autoStart and "ON" or "OFF") end)
-    W.note(p, "Your saved material choices resume on load by request. F8 stops them. No teleport, tool bypass, timestamp spoof, instant rings, crafting spend or reward spoof. Keep the required tool equipped. Server outcomes need live proof.")
+    W.note(p, "Harvest owns ring aim while active. Keep the required tool equipped.")
+    W.note(p, "Saved choices resume. F8 stops them; server rewards require in-game verification.")
     W.section(p, "Opened chest collection")
-    W.toggle(p, {label = "Auto take opened chest loot", key = "autoLoot", set = requestApply,
-        desc = "Saved choice. Waits for a freshly opened chest and native Collect All timer; skips named/player loot."})
-    W.toggle(p, {label = "Use individual-item actions", key = "lootItems", set = requestApply,
-        desc = "Uses native item actions instead of Collect All; does not wait on its timer. Server checks remain."})
+    W.toggle(p, {label = "Auto collect opened chest", key = "autoLoot", set = requestApply,
+        desc = "Open an unnamed chest; waits for Collect All"})
+    W.toggle(p, {label = "Collect items individually", key = "lootItems", set = requestApply,
+        desc = "Item actions skip Collect All timer; server checks remain"})
     W.statusRow(p, function() return lootStatus end)
-    W.note(p, "Default sends one Collect All request immediately. Item mode is bounded to64 items/open and4 calls/0.1s. No cooldown or reward bypass is promised. Open the chest after enabling.")
+    W.note(p, "Collect All waits for its native timer, then sends once. No automatic retries.")
+    W.note(p, "Up to 64 items per opening. Player/named loot is skipped; server checks remain.")
     p = Shell.page("Equipment")
     W.section(p, "Owned armor")
-    W.toggle(p, {label = "Auto Equip Best Armor", key = "autoArmor", set = function() S.setAutoArmor(CFG.autoArmor) end,
-        hint = "Saved choice. Equips owned usable upgrades while idle; one request at a time, six per run."})
-    W.statusRow(p, function() return Armor.status .. " · Method: native Best • owned armor • level " .. tostring(Armor.level) end)
-    W.note(p, "Scores actual rolls, screens current requirements and keeps ties. Native Best, not build-aware damage optimization. Waits during combat, held tools, skills or inventory use. No weapons/vanity/tool changes; no retries. OFF stops future requests without reversing gear.")
+    W.toggle(p, {label = "Auto equip best armor", key = "autoArmor", set = function() S.setAutoArmor(CFG.autoArmor) end,
+        desc = "Owned upgrades while idle; up to six sends per enable"})
+    W.statusRow(p, function() return Armor.status .. " · Level " .. tostring(Armor.level) end)
+    W.note(p, "Scores armor rolls and requirements; keeps ties. Weapons, vanity and tools stay unchanged.")
+    W.note(p, "Pauses during combat, skills and held items. OFF stops future equips without undoing your gear.")
     p = Shell.page("Defense")
-    W.section(p, "Observed combat state")
+    W.section(p, "PvE / boss attack indicators")
+    W.toggle(p, {label = "Mob / boss attack indicators", key = "mobIndicators", set = requestApply,
+        desc = "Attack cues, cooldowns and lock-ending warnings"})
+    W.slider(p, {label = "Indicator range", key = "mobIndicatorRange", min = 30, max = 600, step = 10, set = requestApply})
+    W.slider(p, {label = "Pull-back warning lead (seconds)", key = "mobWarnLead", min = 0.2, max = 2, step = 0.1, set = requestApply})
+    W.statusRow(p, function() return MobIndicator.status end)
+    W.note(p, "Red: attack active. Amber: lock ending. Blue: known lock. Grey: readiness unknown.")
+    W.note(p, "Blue is not a safe window. Other attacks, lingering hazards and next-attack timing are unknown.")
+    W.note(p, "Runs independently of World ESP, recording and auto-parry.")
+    W.section(p, "Your combat state")
     W.statusRow(p, vitals); W.statusRow(p, defenseState)
-    W.section(p, "Reactive auto-parry / guard · experimental")
-    W.toggle(p, {label = "Auto parry (saved choice)", key = "autoParry", set = function() S.setAutoParry(CFG.autoParry) end,
-        hint = "PvE/PvP attack animation/state cues. Normal native guard only; no cooldown/stun bypass or perfect protection claim."})
+    W.section(p, "Auto-parry / guard")
+    W.toggle(p, {label = "Auto parry / guard", key = "autoParry", set = function() S.setAutoParry(CFG.autoParry) end,
+        desc = "Experimental attack-cue guard; not perfect protection"})
     W.toggle(p, {label = "PvE threats", key = "parryPve", set = requestApply})
     W.toggle(p, {label = "PvP threats", key = "parryPvp", set = requestApply})
     W.toggle(p, {label = "Hold normal block if parry unavailable", key = "parryFallback", set = requestApply})
-    W.slider(p, {label = "Melee / NPC range", key = "parryRange", min = 8, max = 60, step = 1, set = requestApply})
-    W.slider(p, {label = "Skill / magic cue range", key = "parrySpellRange", min = 20, max = 150, step = 5, set = requestApply})
+    W.slider(p, {label = "Melee / NPC range (studs)", key = "parryRange", min = 8, max = 60, step = 1, set = requestApply})
+    W.slider(p, {label = "Skill / magic range (studs)", key = "parrySpellRange", min = 20, max = 150, step = 5, set = requestApply})
     W.statusRow(p, function() return AutoParry.status end)
     W.statusRow(p, function() return tostring(AutoParry.requests) .. " guard requests · " .. tostring(AutoParry.damage) .. " HP-loss events" end)
-    W.note(p, "Captured player/mob HitWindow profiles use playback speed and bounded latency lead. One pulse per hit; input releases as native Parrying starts so successful parries can chain. Replayed clips and multi-hit markers get fresh attempts. Unknown active attacks remain uncalibrated. Respects manual block, focus, death, native skill/stun/cooldown locks. Grabs, AoE, projectiles and unstreamed threats may get through. Does not auto-turn or attack. Native Parrying/FX is not proven success.")
-    W.note(p, "Enhanced JSONL diagnostics are automatic while enabled: candidates/playback, decisions, native requests/states/FX and HP changes. Bounded per-session files: logs/clover_parry_*.jsonl; pointer: clover_parry_latest.json. Play normally for useful combat evidence.")
-    W.note(p, "Recording also captures nearby combat NPC animation IDs, playback timing, positions/facing and state changes (120 studs, nearest 12). These are observations, not proven incoming attacks; drops and build sessions are labelled.")
+    W.note(p, "Respects manual block, focus, death and skill/stun/cooldown locks.")
+    W.note(p, "Unknown attacks, grabs, AoE, projectiles and unstreamed threats can get through.")
+    W.note(p, "Replays and multiple hit cues get fresh guard attempts. No automatic turning or attacking.")
+    W.note(p, "Parry animations/FX do not prove success. HP-loss counts are observations.")
+    W.note(p, "Bounded combat diagnostics record attack cues, guard decisions, state and HP changes.")
+    W.section(p, "Combat recording")
+    W.note(p, "Nearest 12 mobs within 120 studs. Timings are observations, not guaranteed threat predictions.")
     W.toggle(p, {label = "Record passive PvE evidence", key = "record", set = requestApply,
-        desc = "Incoming effects + local state/HP. No attacks, block requests or dodges."})
+        desc = "Observes local effects and HP; sends no combat actions"})
     W.statusRow(p, function() return tostring(S.events) .. " recorded · " .. S.latest end)
-    W.note(p, "Play normally to gather evidence. File: logs/clover_defense_observer.log. Remote FX can arrive after impact; records are observations, not threat predictions.")
+    W.note(p, "FX can arrive after impact. Use normal combat to collect useful samples.")
     p = Shell.page("Settings")
-    W.section(p, "Safety and lifecycle")
-    W.note(p, "F8: turn all master features OFF and save. End: unload and restore owned state. RightShift: Hub visibility. Settings save automatically.")
-    W.button(p, "Panic OFF", "Disable awareness, vision, movement and recording", panic, true)
+    W.section(p, "Controls and saved choices")
+    W.note(p, "F8: all master features OFF. End: unload. RightShift: show/hide Hub.")
+    W.note(p, "Settings save automatically; saved ON choices resume when reinjected.")
+    W.button(p, "Panic OFF", "Turn every master feature OFF", panic, true)
     W.button(p, "Unload", "Restore owned changes and remove this module", requestUnload, true)
+    W.section(p, "Diagnostic files")
+    W.note(p, "Auto-parry: logs/clover_parry_*.jsonl; latest session: clover_parry_latest.json.")
+    W.note(p, "Passive recording: logs/clover_defense_observer.log.")
     connect(UIS.InputBegan, function(input, handled)
         if handled or UIS:GetFocusedTextBox() then return end
         if input.KeyCode == Enum.KeyCode.F8 then panic()
@@ -3496,6 +4097,13 @@ local function boot()
     connect(game:GetService("RunService").PreSimulation, function() guard("loot", lootFrame) end)
     connect(game:GetService("RunService").PreSimulation, function()
         if not guard("parry.frame", AutoParry.step) then CFG.autoParry = false; AutoParry.release("controller error") end
+    end)
+    -- Owned indicator UI stays off game-closure/signal threads; ten Hz.
+    task.spawn(function()
+        while S.alive and G[GKEY] == S do
+            guard("mob indicators", MobIndicator.step)
+            task.wait(0.1)
+        end
     end)
     bindEvents(); applyConfig(); Shell.ready()
     local resumed = {}
@@ -3531,6 +4139,7 @@ local function boot()
                     tostring(CFG.climb), tostring(CFG.record)))
             end
             guard("vision", fullbrightStep); guard("movement", movementStep)
+            guard("carry slowdown", Carry.step)
             if S.defenseTransition and LocalPlayer.Character ~= S.defenseTransition then S.defenseTransition = nil end
             guard("broom", broomStep); guard("climb", Climb.step)
             -- Climb discovery yields. Never resume an old worker after unload.
@@ -3546,6 +4155,7 @@ local function boot()
             guard("materials.prompt", promptStep)
             guard("discovery", function() discoveryStep(os.clock()) end)
             guard("esp", espStep); guard("observer", bindHealthObserver)
+            guard("quest objectives", QuestESP.step)
             guard("defense.capture", DefenseCapture.step)
             guard("parry.flush", AutoParry.flush)
             -- Kit.moduleShell owns the visibility-gated live driver.

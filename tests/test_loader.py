@@ -54,7 +54,8 @@ local env = setmetatable({
     writefile=function(path,body)
         if path~="logs/resthub_loader.log" then
             cacheWrites+=1
-            local required=3+(manifest.files["log.lua"] and 1 or 0)+(#manifest.modules>0 and 1 or 0)
+            local required=3+(manifest.files["log.lua"] and 1 or 0)
+                +(manifest.files["r3st_runtime.lua"] and 1 or 0)+(#manifest.modules>0 and 1 or 0)
             assert(compiled>=required,"cache changed before mandatory compilation")
             cache[path]=body
         end
@@ -65,6 +66,7 @@ local env = setmetatable({
         return function()
             if name=="=resthub/hub.lua" then
                 if manifest.files["log.lua"] then assert(cache["log.lua"]) end
+                if manifest.files["r3st_runtime.lua"] then assert(cache["r3st_runtime.lua"]) end
                 hubRan=true
             end
         end
@@ -174,10 +176,29 @@ assert(cacheWrites==0 and not hubRan)
 assert(g.__RESTHUB_LOADER.running==false)
 ''')
 
+    def test_runtime_is_mandatory_before_any_cache_write(self):
+        self.run_loader('bodies["r3st_runtime.lua"]="corrupt"', '''
+assert(not ok and tostring(err):find("SHA%-256 mismatch"))
+assert(cacheWrites==0 and not hubRan)
+''')
+
+    def test_every_registered_universe_routes_only_its_module(self):
+        manifest = json.loads((ROOT / "manifest.json").read_text())
+        for module in manifest["modules"]:
+            with self.subTest(module=module["id"]):
+                self.run_loader(f'env.game.GameId={module["gameId"]}; env.game.PlaceId=1', f'''
+assert(ok,err)
+assert(hubRan and cache["r3st_runtime.lua"] and fetched["{module['path']}"])
+for _,m in ipairs(manifest.modules) do
+    if m.id~="{module['id']}" then assert(not fetched[m.path]) end
+end
+''')
+
     def test_older_release_without_shared_logger_still_boots(self):
         self.run_loader('''
 manifest.minLoader=3
 manifest.files["log.lua"]=nil
+manifest.files["r3st_runtime.lua"]=nil
 manifest.modules={}
 ''', 'assert(ok,err); assert(hubRan and not fetched["log.lua"])')
 

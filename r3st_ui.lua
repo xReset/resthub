@@ -1,4 +1,7 @@
--- R3ST UI kit v2026-10-26.6-studio
+-- R3ST UI kit v2026-10-27.3
+-- Changelog: 2026-10-27.3 Live poller idles when a bind's pages are hidden (no isVisible needed).
+-- Changelog: 2026-10-27.2 Cache readiness paints; show rejected applies on legacy rows.
+-- Changelog: 2026-10-27.1 Readiness guards and flush/cancel pending saves on teardown.
 -- Changelog: 2026-10-26.6-studio Full-size panel motion; deduplicated, cancellable tweens.
 -- Changelog: 2026-10-26.5-studio Promote approved motion and palette to the shared kit.
 -- Changelog: 2026-10-26.5-studio Glide transitions, spring releases, staggered entrances.
@@ -55,7 +58,7 @@
 -- template must never mean rewriting a proven page of controls.
 
 local Kit = {}
-Kit.VERSION = "2026-10-26.6-studio"
+Kit.VERSION = "2026-10-27.3"
 
 -- The version of the module-shell contract this kit implements. hub.lua and
 -- tools/check_hub.py assert on it; a module built against a different one is a
@@ -1315,6 +1318,7 @@ function Kit.bind(host)
 	end
 	local W = { live = live, conns = conns, COL = COL }
 	local drag = nil
+	local pages = setmetatable({}, { __mode = "k" })
 
 	-- The kit drives its own live list. Every toggle repaint and statusRow
 	-- refresh registers here; before 2026-09-23 nothing in the kit ran it, so
@@ -1333,11 +1337,24 @@ function Kit.bind(host)
 				if acc < 1 / W.liveHz then return end
 				acc %= 1 / W.liveHz
 				-- One cheap ancestor check per panel, not one getter per hidden widget.
-				if host.isVisible and not host.isVisible() then return end
+				if host.isVisible then
+					if not host.isVisible() then return end
+				elseif next(pages) then
+					-- No caller predicate: poll only while a page this bind built on is shown.
+					local shown = false
+					for page in pairs(pages) do
+						if not page.Parent then pages[page] = nil
+						elseif Kit.isVisible(page) then shown = true; break end
+					end
+					if not shown then return end
+				end
+				local profile = Kit.profile
+				local started = profile and profile.active() and os.clock()
 				for i = 1, #live do
 					local fn = live[i]
 					if type(fn) == "function" then pcall(fn) end
 				end
+				if started then profile.record("ui.poll", os.clock() - started) end
 			end)
 		end)
 		if ok and conn then conns[#conns + 1] = conn end
@@ -1362,18 +1379,28 @@ function Kit.bind(host)
 	-- apply function sees the new value.
 	--======================================================================
 	local cfg, saveFn = host.cfg, host.save
-	local savePending = false
+	local savePending, closed, saveGeneration = false, false, 0
 	local function scheduleSave()
-		if not saveFn or savePending then return end
+		if closed or not saveFn or savePending then return end
 		savePending = true
+		local generation = saveGeneration
 		task.delay(host.saveDelay or 0.75, function()
+			if closed or generation ~= saveGeneration then return end
 			savePending = false
 			guard("ui.autosave", saveFn)
 		end)
 	end
 	W.cfg = cfg
 	W.saveNow = function()
-		if saveFn then guard("ui.autosave", saveFn) end
+		saveGeneration += 1
+		savePending = false
+		if not closed and saveFn then guard("ui.autosave", saveFn) end
+	end
+	function W.destroy()
+		if closed then return end
+		if savePending then W.saveNow() end
+		closed = true
+		for _, conn in ipairs(conns) do pcall(function() conn:Disconnect() end) end
 	end
 
 	-- Returns the get/set pair a widget should actually use.
@@ -1386,9 +1413,18 @@ function Kit.bind(host)
 		end
 		local get = o.get or function() return cfg[o.key] end
 		local set = function(v)
+			if closed then return false, "panel is closed" end
+			local previous = cfg[o.key]
 			cfg[o.key] = v
-			if o.set then o.set(v) end
+			if o.set then
+				local ok, result, reason = pcall(o.set, v)
+				if not ok or result == false then
+					cfg[o.key] = previous
+					return false, tostring(reason or result)
+				end
+			end
 			scheduleSave()
+			return true
 		end
 		return get, set
 	end
@@ -1586,7 +1622,9 @@ function Kit.bind(host)
 
 	function W.toggle(page, o)
 		local get, set = wire(o, false)
-		local h = o.desc and 44 or 34
+		local hasBackend = type(get) == "function" and type(set) == "function"
+		get = get or function() return false end
+		local h = (o.ready or not hasBackend) and (o.desc and 64 or 54) or (o.desc and 44 or 34)
 		local box = rowBox(page, h)
 		local name = label(box, o.label, Kit.ROLE.control.size, COL.text, 0, o.desc and 2 or 0, 0,
 			o.desc and 18 or h)
@@ -1629,8 +1667,33 @@ function Kit.bind(host)
 		-- a page opening shows its switches already in position rather than
 		-- playing twenty of them at once.
 		local lastOn = nil
+		local lastReady, lastStatus, lastActive
+		local failure
+		local readinessLabel
+		if o.ready or not hasBackend then
+			readinessLabel = label(box, "", Kit.ROLE.caption.size, COL.dim, 0, o.desc and 44 or 34, 0, 16)
+			readinessLabel.Size = UDim2.new(1, -60, 0, 16)
+			readinessLabel.TextTruncate = Enum.TextTruncate.AtEnd
+		end
+		local function readiness()
+			if not hasBackend then return false, "Blocked: backend is not wired" end
+			if not o.ready then return true, "" end
+			local ok, ready, reason = pcall(o.ready)
+			return ok and ready == true, ok and tostring(reason or (ready and "Available; outcome unverified" or "Backend unavailable")) or tostring(ready)
+		end
 		local function redraw()
+			local ready, reason = readiness()
+			local status = failure or reason
+			if ready ~= lastReady then box:SetAttribute("R3ST_Ready", ready); lastReady = ready end
+			if status ~= lastStatus then
+				box:SetAttribute("R3ST_Status", status)
+				if readinessLabel then readinessLabel.Text = status
+				else name.Text = failure and (tostring(o.label) .. " — " .. failure) or o.label end
+				lastStatus = status
+			end
 			local on = get() and true or false
+			local active = hasBackend and (ready or on)
+			if active ~= lastActive then track.Active = active; lastActive = active end
 			if on == lastOn then return end
 			local d = (lastOn == nil) and 0 or Kit.MOTION.fast
 			if stateLabel then
@@ -1665,7 +1728,10 @@ function Kit.bind(host)
 			guard("ui.toggle." .. tostring(o.label), function()
 				local on = lastOn
 				if not o.fromDisplay then on = get() end
-				set(not on)
+				local ready, reason = readiness()
+				if closed or not hasBackend or (not on and not ready) then failure = reason; return end
+				local ok, result, err = pcall(set, not on)
+				failure = (not ok or result == false) and ("Apply failed: " .. tostring(err or result)) or nil
 			end)
 		end)
 		redraw()
@@ -2213,6 +2279,16 @@ function Kit.bind(host)
 		return f, unload, settings, reload
 	end
 
+	-- Remember every page a widget lands on so the live poller can idle when hidden.
+	for _, name in ipairs({ "row", "group", "keybind", "number", "toggle", "slider", "button", "note",
+		"statusRow", "search", "badge", "card", "empty", "switch", "header", "tabstrip", "footer" }) do
+		local build = W[name]
+		W[name] = function(page, ...)
+			if typeof(page) == "Instance" and page:IsA("GuiObject") then pages[page] = true end
+			return build(page, ...)
+		end
+	end
+
 	return W
 end
 
@@ -2510,6 +2586,7 @@ function Kit.moduleShell(o)
 	end
 
 	function S.destroy()
+		if S.W and S.W.destroy then S.W.destroy() end
 		for _, c in ipairs(S.conns) do pcall(function() c:Disconnect() end) end
 		for _, c in ipairs(H.conns or {}) do pcall(function() c:Disconnect() end) end
 		if screen and screen.Parent then screen:Destroy() end

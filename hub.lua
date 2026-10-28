@@ -1,6 +1,8 @@
--- R3ST Hub v2026-10-26.13-public (2026-10-26)
+-- R3ST Hub v2026-10-27.2 (2026-10-27)
 -- Client UI shell. Re-inject safe; RightShift show/hide; K unload.
 -- Changelog:
+-- 2026-10-27.2 Add RoChess local Stockfish module; keep its backend outside the Hub.
+-- 2026-10-27.1 Stage shell before teardown; honest reload readiness and opt-in frame captures.
 -- 2026-10-26.13-public Keep private report destinations out of public source.
 -- 2026-10-26.12-quests Ship Clover profession trials, hymn solver and quest map assistance.
 -- 2026-10-26.11-studio Short full-size motion; no row scaling or per-frame minimize reflow.
@@ -27,7 +29,21 @@
 -- .51 Restore Auto-start Admin setting.
 -- .50 Auto-start Admin except in Critical Strike.
 -- HOST-MOUNT CONTRACT (hub skill S6, migration step)
-local BUILD_VERSION = "2026-10-26.13-public"
+local BUILD_VERSION = "2026-10-27.2"
+local Runtime
+for _, path in ipairs({ "../scripts/r3st_runtime.lua", "r3st_runtime.lua", "scripts/r3st_runtime.lua" }) do
+	local found, source = pcall(readfile, path)
+	if found and type(source) == "string" then
+		local ok, value = pcall(function() return assert(loadstring(source, "=r3st_runtime.lua"))() end)
+		if ok then Runtime = value end
+		break -- never fall back from broken preferred bytes
+	end
+end
+if type(Runtime) ~= "table" or type(Runtime.boot) ~= "function" then
+	pcall(writefile, "logs/r3st_reload.log", "FAILED runtime dependency; resident Hub preserved\n")
+	return
+end
+local booted, bootError = Runtime.boot(getgenv(), "__R3ST_HUB", function(scope)
 local SHELL_CONTRACT = "1"
 local GKEY = "__R3ST_HUB"
 local HOST_KEY = "__R3ST_HOST"
@@ -38,13 +54,11 @@ local CoreGui = game:GetService("CoreGui")
 local Lighting = game:GetService("Lighting")
 local MarketplaceService = game:GetService("MarketplaceService")
 local G = getgenv()
-if G[GKEY] and G[GKEY].destroy then pcall(G[GKEY].destroy) end
-G[HOST_KEY] = nil
 local alive = true
 local connections = {}
 local screen
 local destroy
-local saveQueued = false
+local saveQueued, saveGeneration = false, 0
 local favoritesMigrated = false
 local rowRefresh = {} -- page name -> function, called when favorites change
 local toggleShown -- show/hide the whole hub, with motion (RightShift)
@@ -62,12 +76,26 @@ local content
 local sidebar
 local blur
 local root
+scope.own(function()
+	alive = false
+	for _, conn in ipairs(connections) do pcall(function() conn:Disconnect() end) end
+	if screen then screen:Destroy() end
+	if blur then blur:Destroy() end
+end)
 local mountedModules = {}
 local lastMounted -- the most recent one, for reload()/status() with no target
 local hostMounts = {}
 local hostEntries = {}
 local hostAlias = {} -- lowercase id / file / name -> id
 local hostPages = {} -- id -> { page, host, reload, entry }
+local sessionId = HttpService:GenerateGUID(false)
+local profiler = Runtime.profiler({ build = BUILD_VERSION, placeId = game.PlaceId, gameId = game.GameId,
+	session = sessionId, signal = game:GetService("RunService").RenderStepped,
+	write = function(sample)
+		if makefolder and isfolder and not isfolder("logs") then makefolder("logs") end
+		writefile("logs/r3st_perf_" .. sample.label .. ".json", HttpService:JSONEncode(sample))
+	end })
+scope.own(function() profiler.stop("startup failed") end)
 pcall(function()
 	local ok, factory = pcall(loadfile, "log.lua")
 	if ok and type(factory) == "function" then
@@ -94,31 +122,13 @@ local function hubLog(level, message)
 		end
 	end)
 end
-local MODULE_PATHS = { "../scripts/%s", "%s", "scripts/%s" }
 local function loadModule(file)
-	local lastErr
-	for _, pattern in ipairs(MODULE_PATHS) do
-		local path = pattern:format(file)
-		local readOk, src = pcall(readfile, path)
-		if readOk and type(src) == "string" and #src > 0 then
-			local chunk, err = loadstring(src, "=" .. file)
-			if type(chunk) == "function" then
-				hubLog(
-					"info",
-					"resolved " .. file .. " -> " .. path .. " (" .. tostring(#src) .. " bytes)"
-				)
-				return chunk
-			end
-			lastErr = "compile error in " .. path .. ": " .. tostring(err)
-		end
-	end
-	if lastErr then return nil, lastErr end
-	return nil, "not found in the Potassium Explorer folder (" .. file .. ")"
+	local chunk, err, path, source = Runtime.resolve(file, readfile, loadstring)
+	if chunk then hubLog("info", "resolved " .. file .. " -> " .. path .. " (" .. #source .. " bytes)") end
+	return chunk, err
 end
 local UIKit
 do
-	-- The studio kit first; the canonical kit keeps the shell usable if the copy
-	-- is missing from the Explorer folder.
 	local chunk = loadModule("r3st_ui.lua")
 	if chunk then
 		local ok, kit = pcall(chunk)
@@ -127,18 +137,13 @@ do
 	if UIKit then
 		hubLog("info", "ui kit " .. tostring(UIKit.VERSION))
 		if tostring(UIKit.SHELL_CONTRACT) ~= SHELL_CONTRACT then
-			hubLog(
-				"warn",
-				"ui shell contract mismatch want="
-					.. SHELL_CONTRACT
-					.. " got="
-					.. tostring(UIKit.SHELL_CONTRACT)
-			)
+			error("UI shell contract mismatch; resident Hub preserved")
 		end
 	else
-		hubLog("warn", "r3st_ui.lua not loadable - hub falls back to its built-in palette")
+		error("r3st_ui.lua failed to initialize; resident Hub preserved")
 	end
 end
+UIKit.profile = profiler
 C = (UIKit and UIKit.COL)
 	or {
 		bg = Color3.fromRGB(7, 7, 9), panel = Color3.fromRGB(13, 13, 16),
@@ -234,6 +239,9 @@ local function pruneConnections()
 	for i = #connections, count + 1, -1 do connections[i] = nil end
 end
 local REGISTRY = {
+	{ id = "rochess", moduleKey = "RoChess", name = "RoChess", cat = "Sports",
+		placeId = 139717576471404, gameId = 10768845402, file = "rochess_hub.lua",
+		embed = true, gkey = "__ROCHESS_HUB", desc = "Local Stockfish with live board recovery, Elo and move timing." },
 	{ id = "bike-universe", moduleKey = "BikeUniverse", name = "Bike Universe", cat = "Vehicle",
 		placeId = 98628861455414, gameId = 10768284407, file = "bike_universe_hub.lua", embed = true,
 		gkey = "__BIKE_UNIVERSE_HUB",
@@ -457,14 +465,24 @@ local function loadConfig()
 	end
 end
 local function saveConfig(force)
-	if not force and not state.autosave then return end
+	if not alive or (not force and not state.autosave) then return end
+	local function write()
+		local ok, raw = pcall(HttpService.JSONEncode, HttpService, state)
+		if not ok then return false, raw end
+		return pcall(writefile, CONFIG_FILE, raw)
+	end
+	if force then
+		local ok, reason = write()
+		if ok then saveGeneration += 1; saveQueued = false end
+		return ok, reason
+	end
 	if saveQueued then return end
 	saveQueued = true
+	local generation = saveGeneration
 	task.delay(0.4, function()
+		if not alive or generation ~= saveGeneration then return end
 		saveQueued = false
-		if not alive then return end
-		local ok, raw = pcall(HttpService.JSONEncode, HttpService, state)
-		if ok then pcall(writefile, CONFIG_FILE, raw) end
+		write()
 	end)
 end
 loadConfig()
@@ -878,55 +896,23 @@ local function unmountAll()
 		unmountModule(id)
 	end
 end
-local function runModule(entry, host, fresh) -- fresh = explicit reload
-	local chunk, err = loadModule(entry.file)
-	if not chunk then
-		hubLog("warn", "load failed file=" .. entry.file .. " err=" .. tostring(err))
-		return false, err
+local function runModule(entry, host, fresh)
+	local ok, err, touched = Runtime.runModule({ globals = G, entry = entry, host = host,
+		fresh = fresh, load = loadModule, transport = host and {
+			host = host, width = host.AbsoluteSize.X > 0 and host.AbsoluteSize.X or CONTENT_W - 24,
+			height = host.AbsoluteSize.Y > 0 and host.AbsoluteSize.Y or BODY_H - 24,
+			build = BUILD_VERSION, hub = "R3ST", autosave = state.autosave,
+			contract = SHELL_CONTRACT, ui = UIKit, back = function() setPage("Home") end,
+		} or nil })
+	if not ok then
+		if touched and entry.id then mountedModules[entry.id] = nil end
+		hubLog("warn", entry.file .. ": " .. tostring(err)); return false, err
 	end
-	if host then
-		unmountModule(entry.id)
-		for _, child in ipairs(host:GetChildren()) do
-			child:Destroy()
-		end
-		G[HOST_KEY] = {
-			host = host,
-			width = host.AbsoluteSize.X > 0 and host.AbsoluteSize.X or (CONTENT_W - 24),
-			height = host.AbsoluteSize.Y > 0 and host.AbsoluteSize.Y or (BODY_H - 24),
-			build = BUILD_VERSION,
-			hub = "R3ST", autosave = state.autosave, contract = SHELL_CONTRACT,
-			ui = UIKit, -- the shared control template (scripts/r3st_ui.lua)
-			back = function() setPage("Home") end,
-		}
-	end
-	local existing = G[entry.gkey]
-	if fresh and type(existing) == "table" and type(existing.unload) == "function" then
-		pcall(existing.unload)
-		existing = nil
-	end
-	if host and not fresh and type(existing) == "table" and type(existing.mount) == "function" then
-		local mounted, mountErr = pcall(existing.mount, G[HOST_KEY])
-		G[HOST_KEY] = nil
-		if not mounted then
-			hubLog("warn", "Anims panel remount failed: " .. tostring(mountErr))
-			return false, tostring(mountErr)
-		end
-		lastMounted = { gkey = entry.gkey, name = entry.name, id = entry.id }
-		mountedModules[entry.id] = lastMounted
-		hubLog("info", "module remounted " .. entry.file .. " (controller preserved)")
-		return true
-	end
-	local ran, runErr = pcall(chunk)
-	G[HOST_KEY] = nil
-	if not ran then
-		hubLog("warn", "module runtime failed file=" .. entry.file .. " err=" .. tostring(runErr))
-		return false, tostring(runErr)
-	end
-	hubLog("info", "module loaded " .. entry.file .. (host and " (embedded)" or " (standalone)"))
 	if host and entry.gkey then
 		lastMounted = { gkey = entry.gkey, name = entry.name, id = entry.id }
 		mountedModules[entry.id] = lastMounted
 	end
+	hubLog("info", "module mounted " .. entry.file .. "; gameplay outcomes not verified")
 	if entry.placeId then noteRecent(entry) end
 	return true
 end
@@ -1006,7 +992,7 @@ local function makeGameRow(parent, entry, y, width)
 	description.Font = FONT.body
 	local status = label(
 		row,
-		ready and "●  Ready here" or "Join to use",
+		ready and "Supported here" or "Join to use",
 		UDim2.fromOffset(104, 24), UDim2.new(1, -96, 0.5, 0), 13,
 		ready and C.good or C.faint, ready
 	)
@@ -1457,7 +1443,7 @@ local function makeHostPage(name, entry, subtitle)
 	reload.TextSize = 13
 	reload.Name = "R3ST_Reload_" .. tostring(entry.id)
 	reload:SetAttribute("R3ST_Reload", tostring(entry.id))
-	local host
+	local host, ancestryConnection
 	local function ensureHost()
 		if host and host.Parent == p then return host end
 		local rebuild = host ~= nil
@@ -1467,6 +1453,13 @@ local function makeHostPage(name, entry, subtitle)
 			ClipsDescendants = true,
 		}, p)
 		host:SetAttribute("R3ST_Host", tostring(entry.id))
+		if ancestryConnection then ancestryConnection:Disconnect() end
+		local ownedHost = host
+		ancestryConnection = connect(host.AncestryChanged, function()
+			if not ownedHost:IsDescendantOf(game) and mountedModules[entry.id] then
+				hubLog("warn", "HOST ORPHANED for " .. tostring(entry.id))
+			end
+		end)
 		if hostPages[entry.id] then hostPages[entry.id].host = host end
 		if rebuild then
 			hubLog("info", "host rebuilt for " .. tostring(entry.id) .. " (a module destroyed it)")
@@ -1482,14 +1475,6 @@ local function makeHostPage(name, entry, subtitle)
 		status.TextColor3 = C.dim
 		local live = ensureHost()
 		local ok, err = runModule(entry, live, force and true or false)
-		connect(live.AncestryChanged, function() -- orphaning is silent; say it
-			if not live:IsDescendantOf(game) and mountedModules[entry.id] then
-				hubLog(
-					"warn",
-					"HOST ORPHANED for " .. tostring(entry.id) .. " -- UI invisible until remount"
-				)
-			end
-		end)
 		if ok then
 			status.Text = "●  " .. entry.file .. " embedded · " .. (entry.desc or "")
 			status.TextColor3 = C.good
@@ -1497,12 +1482,10 @@ local function makeHostPage(name, entry, subtitle)
 		else
 			status.Text = tostring(err)
 			status.TextColor3 = C.bad
-			emptyState(
-				ensureHost(),
-				"Could not load " .. entry.file,
-				tostring(err)
-					.. "\nDeploy it to the Potassium Explorer folder, then press Reload module."
-			)
+			-- Preserve a working panel after a compile/preflight failure.
+			if #ensureHost():GetChildren() == 0 then
+				emptyState(ensureHost(), "Could not load " .. entry.file, tostring(err))
+			end
 		end
 		return ok, err
 	end
@@ -1593,14 +1576,7 @@ do
 	reload.Name = "R3ST_Reload_admin"
 	reload:SetAttribute("R3ST_Reload", "admin")
 	function launchAdmin(force)
-		if force then
-			local resident = G.Admin
-			if type(resident) == "table" and type(resident.destroy) == "function" then
-				pcall(resident.destroy)
-			end
-			G.Admin = nil
-		end
-		local ok, err = runModule({ name = "Admin", file = "admin.lua" }, nil)
+		local ok, err = runModule({ name = "Admin", file = "admin.lua", gkey = "Admin", deferred = true }, nil, force)
 		if not ok then
 			st.Text = tostring(err)
 			st.TextColor3 = C.bad
@@ -1906,7 +1882,16 @@ do
 			result.Text = (ok and "sent — thank you. " or "could not send — ") .. tostring(msg)
 		end)
 	end)
-	aboutBody.CanvasSize = UDim2.fromOffset(0, y + 100)
+	local capture = button(aboutBody, "Capture frames (30s)", UDim2.fromOffset(200, 30), UDim2.fromOffset(0, y + 100))
+	local stop = button(aboutBody, "Stop capture", UDim2.fromOffset(140, 30), UDim2.fromOffset(210, y + 100))
+	connect(capture.Activated, function()
+		local ok, message = profiler.start("manual", 30, { page = state.page, shown = screen.Enabled })
+		result.Text = (ok and "" or "Blocked: ") .. message .. "; logs/r3st_perf_manual.json"
+	end)
+	connect(stop.Activated, function() profiler.stop(); result.Text = profiler.status() end)
+	label(aboutBody, "Opt-in frame timing only. No game actions; compare the same scene and settings.",
+		UDim2.new(1, -8, 0, 30), UDim2.fromOffset(0, y + 138), 12, C.dim)
+	aboutBody.CanvasSize = UDim2.fromOffset(0, y + 184)
 end
 do
 	-- Each group opens with a small-caps heading instead of a bare rule, so the
@@ -1987,7 +1972,7 @@ do
 	round(dot, 4)
 	label(
 		sidebar,
-		activeEntry and "Module ready" or "No module here",
+		activeEntry and "Module available" or "No module here",
 		UDim2.fromOffset(130, 18), UDim2.fromOffset(36, y + 29), 13,
 		activeEntry and C.good or C.dim, true
 	)
@@ -2030,6 +2015,8 @@ do
 end
 destroy = function()
 	if not alive then return end
+	if saveQueued then saveConfig(true) end
+	profiler.stop("Hub unloaded")
 	alive = false
 	unmountAll()
 	for _, c in ipairs(connections) do
@@ -2071,20 +2058,12 @@ local function reloadHub()
 			"FAILED hub: " .. tostring(err) .. " (still running " .. BUILD_VERSION .. ")"
 		)
 	end
-	task.defer(function()
-		local ok, runErr = pcall(chunk)
-		if not ok then
-			pcall(
-				writefile, RELOAD_LOG,
-				("[%s] FAILED hub runtime: %s\n"):format(os.date("%H:%M:%S"), tostring(runErr))
-			)
-		end
-	end)
-	return reloadResult(
-		"OK hub reloading from disk (was "
-			.. BUILD_VERSION
-			.. "; read this file again for the new build)"
-	)
+	local ok, successor = pcall(chunk)
+	if not ok or type(successor) ~= "table" or successor == G[GKEY] and successor.destroy == destroy
+		or successor.ready ~= true then
+		return reloadResult("FAILED hub startup: " .. tostring(successor))
+	end
+	return reloadResult("OK hub ready build " .. tostring(successor.build))
 end
 local function reloadModule(target)
 	local id = hostAlias[tostring(target):lower()]
@@ -2141,6 +2120,7 @@ local function hubInspect()
 	local targets = {}
 	for id, rec in pairs(hostPages) do
 		local roots = {}
+		local handle = rec.entry and G[rec.entry.gkey]
 		if rec.host and rec.host.Parent then
 			for _, child in ipairs(rec.host:GetChildren()) do
 				if child:IsA("GuiObject") and child:GetAttribute("R3ST_ModuleRoot") ~= nil then
@@ -2153,12 +2133,14 @@ local function hubInspect()
 			file = rec.entry and rec.entry.file or nil,
 			page = rec.page, host = rec.host, reload = rec.reload, roots = roots,
 			mounted = mountedModules[id] ~= nil,
+			build = type(handle) == "table" and handle.build or nil,
+			ready = mountedModules[id] ~= nil and Runtime.mounted(handle, rec.host) == true,
 			visible = rec.page and rec.page.Visible == true or false,
 		}
 	end
 	return {
 		contract = SHELL_CONTRACT, kitContract = UIKit and tostring(UIKit.SHELL_CONTRACT) or nil,
-		kitVersion = UIKit and tostring(UIKit.VERSION) or nil, build = BUILD_VERSION, alive = alive,
+		kitVersion = UIKit and tostring(UIKit.VERSION) or nil, build = BUILD_VERSION, alive = alive, session = sessionId,
 		page = state.page, screen = screen, root = root, targets = targets,
 	}
 end
@@ -2261,10 +2243,11 @@ local function sendReport(who, note)
 	end
 	return false, "receiver returned " .. tostring(code)
 end
-G[GKEY] = {
+local api = {
+	flush = function() if saveQueued then return saveConfig(true) end end,
 	destroy = destroy, build = BUILD_VERSION, reload = reload, status = hubStatus,
 	targets = reloadTargets, inspect = hubInspect, contract = SHELL_CONTRACT, logFile = RELOAD_LOG,
-	report = sendReport, reportPreview = buildReport,
+	report = sendReport, reportPreview = buildReport, profile = profiler,
 }
 if UIKit and UIKit.resizeGrip then
 	UIKit.resizeGrip(root, {
@@ -2496,3 +2479,10 @@ end
 if activeEntry and activeEntry.embed and navButtons[activeEntry.name] and mountActiveGame then
 	connect(navButtons[activeEntry.name].Activated, function() mountActiveGame(false) end)
 end
+api.ready = true
+return api
+end)
+if not booted then
+	pcall(writefile, "logs/r3st_reload.log", "FAILED Hub startup: " .. tostring(bootError) .. "\n")
+end
+return booted

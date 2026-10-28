@@ -1,5 +1,5 @@
 --------------------------------------------------------------------------
--- gd2.lua -- R3ST Hub / Ghost Driver v2026-09-06.gd2.50 (2026-09-06)   PlaceId 137228775845999
+-- gd2.lua -- R3ST Hub / Ghost Driver v2026-10-28.gd2.51 (2026-10-28)   PlaceId 137228775845999
 -- .50: pass-through clears CanQuery with CanCollide -- driving inside another
 -- player's car left ~67 queryable parts, A-Chassis raycasts the ground, and the
 -- ray hit their floor instead of the road, so a wheel and the lip sank through
@@ -139,7 +139,7 @@ local SoundService = game:GetService("SoundService")
 local HttpService = game:GetService("HttpService")
 
 local LP = Players.LocalPlayer
-local BUILD_VERSION = "2026-09-06.gd2.50"
+local BUILD_VERSION = "2026-10-28.gd2.51"
 local LOG_FILE = "logs/gd2.log"
 local CFG_FILE = "gd2_config.json"
 local OLD_CFG_FILE = "gd_config.json"
@@ -2258,7 +2258,7 @@ end
 -- pinned them non-collidable even after they got back in -- so the body
 -- settled through the road and the front lip disappeared into the world.
 -- The server stamps OwnerUserId / OwnerName on every car model
--- (trees/Workspace.txt, e.g. OwnerUserId=2234175089 OwnerName="Resetyv"), and
+-- (trees/Workspace.txt: OwnerUserId and OwnerName), and
 -- those do not change when you step out.
 local function passIsMine(model)
 	if model == U.seatedCar() then
