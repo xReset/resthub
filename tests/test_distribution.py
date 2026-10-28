@@ -38,6 +38,8 @@ class DistributionTests(unittest.TestCase):
 
     def test_shared_runtime_and_other_dependencies_are_pinned(self):
         manifest = json.loads((ROOT / "manifest.json").read_text())
+        version = int(re.search(r"local LOADER_VERSION = (\d+)", (ROOT / "loader.lua").read_text()).group(1))
+        self.assertEqual(manifest["minLoader"], version)
         for path in ("hub.lua", "r3st_runtime.lua", "r3st_ui.lua", "anims.lua", "log.lua"):
             with self.subTest(path=path):
                 self.assertEqual(manifest["files"][path]["localName"], path)

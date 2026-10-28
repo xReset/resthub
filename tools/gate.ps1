@@ -16,7 +16,12 @@ foreach ($path in $Lua) {
     if ($LASTEXITCODE -ne 0) { throw "GATE FAIL compile $path" }
     Write-Host "COMPILE_OK $path"
 }
-if ($manifest.schema -ne 1 -or $manifest.minLoader -gt 5) { throw "GATE FAIL manifest schema/loader" }
+$loaderText = [IO.File]::ReadAllText((Join-Path $Root "loader.lua"))
+$versionMatch = [regex]::Match($loaderText, 'local LOADER_VERSION = (\d+)')
+if (!$versionMatch.Success) { throw "GATE FAIL missing loader version" }
+if ($manifest.schema -ne 1 -or $manifest.minLoader -gt [int]$versionMatch.Groups[1].Value) {
+    throw "GATE FAIL manifest schema/loader"
+}
 if ($manifest.revision -notmatch '^[0-9a-fA-F]{40}$') { throw "GATE FAIL manifest revision" }
 foreach ($property in $manifest.files.PSObject.Properties) {
     $path = $property.Name
