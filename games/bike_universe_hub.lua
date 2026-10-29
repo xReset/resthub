@@ -1,12 +1,16 @@
--- Bike Universe Hub v2026-10-26.1 (2026-10-26)
+-- Bike Universe Hub v2026-10-28.2 (2026-10-28)
 -- Rungs 3/5: local live tune attributes and owned-rider controller state.
 -- Server sees stock RiderInput and resulting motion. No new remotes, namecall
 -- hooks, direct CFrame/velocity writes, print/warn, or anticheat bypass.
 -- Proof: 2026-10-26T12-26-37Z capture: 0106:2003-2054,2820-2889;
 -- 0065:1247-1276,1361-1483; 0094:893-984; 0067:109-130; 0023:289-299.
--- Local crash guards are not server immunity. Risky post-step tricks still crash.
+-- Local crash guards are not server immunity. No server arrest/fine bypass.
+-- Hands-free state, real tail contact and owned Trick writes reuse stock input.
+-- Banking waits for stock idle payout and observed Cash; never forges a score.
+-- DETECTED: speed-hacking kick recorded 2026-10-28; movement boots OFF.
+-- Wheelie assist resumes normally; no wheelie-specific enforcement proven.
 -- Re-inject safe: self-teardown on load; K = unload, Delete = saved panic OFF.
-local BUILD_VERSION = "2026-10-26.1"
+local BUILD_VERSION = "2026-10-28.2"
 local EXPECTED_GAME = 10768284407
 local EXPECTED_PLACE = 98628861455414
 local GKEY = "__BIKE_UNIVERSE_HUB"
@@ -24,19 +28,25 @@ end
 
 -- CORE BEGIN: tested from the actual source, without Roblox.
 local Core = {}
+Core.safeGround = {[1]=true, [2]=true, [3]=true, [6]=true, [8]=true}
 Core.defaults = {
 	movement = false, speed = 1.25, power = 1.5, reverse = 1, coast = 1,
 	handling = false, grip = 1.2, brakes = 1.2, turn = 1, lean = 1, steer = 1,
 	suspension = false, frequency = 1, damping = 1, rebound = 1, travel = 1, pitch = 1,
 	stunts = false, strength = 1, hold = false, angle = 65, pop = 1, gravity = 1,
 	airRate = 1, whip = 1, crashGuard = false, trafficGuard = false,
+	auto = false, scrape = false, scrapeOffset = 0, margin = 8,
+	modifiers = false, bank = false, bankSeconds = 60, releaseRate = 60,
+	combo = false, segmentSeconds = 10,
 }
 Core.limits = {
 	speed = {0.5, 4}, power = {0.5, 8}, reverse = {0.5, 3}, coast = {0, 2},
 	grip = {0.5, 3}, brakes = {0.5, 3}, turn = {0.4, 2}, lean = {0.5, 1.5},
 	steer = {0.5, 1.5}, frequency = {0.5, 2}, damping = {0.5, 2},
 	rebound = {0.5, 2}, travel = {0.5, 2}, pitch = {0.5, 2}, strength = {0.25, 3},
-	angle = {20, 90}, pop = {0.5, 3}, gravity = {0.5, 1.5}, airRate = {0.5, 3}, whip = {0.5, 2},
+	angle = {20, 105}, pop = {0.5, 3}, gravity = {0.5, 1.5}, airRate = {0.5, 3}, whip = {0.5, 2},
+	scrapeOffset = {-3, 3}, margin = {5, 20}, bankSeconds = {15, 300}, releaseRate = {20, 90},
+	segmentSeconds = {8, 30},
 }
 Core.globalDefaults = { camera = false, fov = 80, audio = false, volume = 1,
 	esp = false, names = true, distance = true }
@@ -95,6 +105,9 @@ function Core.config(saved)
 			end
 		end
 	end
+	-- Recorded speed enforcement: activation requires this session's choice.
+	cfg.default.movement = false
+	for _, profile in next, cfg.profiles do profile.movement = false end
 	return cfg
 end
 function Core.patch(base, p)
@@ -126,30 +139,103 @@ function Core.restore(target, records, get, set)
 	end
 	table.clear(records)
 end
-function Core.assist(ctx, p, dt, throttle)
-	if not p.hold or not ctx.wheelieHeld or ctx.stoppieHeld or ctx.rearBrakeHeld
-		or throttle < -0.05 or ctx.crash or ctx.loopedOut or ctx.grind or ctx.vert or ctx.vertAir
-		or (ctx.airTime or 0) > 0 or not Core.finite(dt) or dt <= 0 or dt > 0.1 then return end
+function Core.holdTarget(ctx, p, scrapeAngle, clearance, adjustment, dt)
 	local loop = ctx.model:GetAttribute("LoopOutDeg")
 	if not Core.finite(loop) then loop = 110 end
-	local ceiling = math.rad(math.clamp(math.min(p.angle, loop - 15), 5, 90))
-	-- Stock step adds 80 degrees/s to target. Cancel that addition, not input.
-	ctx.wheelieTarget = math.max(0, ceiling - math.rad(80) * dt)
-	if Core.finite(ctx.wheelieAngle) and ctx.wheelieAngle >= ceiling then
-		ctx.wheelieAngle = ceiling
-		ctx.wheelieRate = math.min(ctx.wheelieRate or 0, 0)
+	local limit = math.rad(loop - p.margin)
+	if not p.scrape then return math.min(math.rad(p.angle), limit), "balance", 0 end
+	if not Core.finite(scrapeAngle) then return nil, "scrape geometry unavailable", 0 end
+	local base = scrapeAngle + math.rad(p.scrapeOffset)
+	if base <= math.rad(10) or base >= limit then return nil, "scrape outside loop margin", 0 end
+	adjustment = adjustment or 0
+	if Core.finite(clearance) and Core.finite(dt) and dt > 0 then
+		adjustment = math.clamp(adjustment + (clearance - 0.08) * math.rad(25) * dt, -math.rad(3), math.rad(3))
 	end
-	return ceiling
+	return math.clamp(base + adjustment, math.rad(10.5), limit), "scrape", adjustment
 end
-function Core.after(ctx, guard, previousCrash, previousLoop, ceiling)
+function Core.farm(state, p, ctx, dt, blocked, cash, pending)
+	if not p.auto or blocked then
+		state.phase = p.auto and "paused" or "off"
+		state.elapsed, state.wait, state.started, state.forceBank = 0, 0, false, false
+		return
+	end
+	if not Core.finite(dt) or dt <= 0 then return end
+	if state.phase == nil or state.phase == "off" or state.phase == "paused" then state.phase = "holding" end
+	if state.phase == "holding" then
+		if (ctx.wheelieAngle or 0) > math.rad(10) then
+			state.elapsed = (state.elapsed or 0) + dt
+			state.segmentElapsed = (state.segmentElapsed or 0) + dt
+		end
+		if state.forceBank or p.bank and (state.elapsed or 0) >= p.bankSeconds then
+			state.phase, state.forceBank, state.releaseFor = "lowering", false, "bank"
+		elseif p.combo and (state.segments or 0) < 3 and (state.segmentElapsed or 0) >= p.segmentSeconds then
+			state.phase, state.releaseFor = "lowering", "segment"
+		end
+	elseif state.phase == "lowering" then
+		if (ctx.wheelieAngle or 0) <= math.rad(0.5) then
+			state.phase = state.releaseFor == "segment" and "linking" or "banking"
+			state.wait, state.cashBefore = 0, cash
+		end
+	elseif state.phase == "linking" then
+		-- Finish the ground entry's 0.2s grace without exhausting the 4.5s chain ring.
+		state.wait = (state.wait or 0) + dt
+		if state.wait >= 0.35 then
+			state.segments, state.segmentElapsed, state.started = (state.segments or 0) + 1, 0, false
+			state.phase = "holding"
+		end
+	elseif state.phase == "banking" then
+		state.wait = (state.wait or 0) + dt
+		-- Native entry grace + up to 4.5s ring expiry. Never restart on timeout alone.
+		if state.wait >= 5 and Core.finite(cash) and Core.finite(state.cashBefore)
+			and cash > state.cashBefore and pending == 0 then
+			state.bankCash = (state.bankCash or 0) + cash - state.cashBefore
+			state.cycles, state.elapsed, state.started = (state.cycles or 0) + 1, 0, false
+			state.segments, state.segmentElapsed = 0, 0
+			state.phase = "holding"
+		end
+	end
+end
+function Core.assist(ctx, p, dt, throttle, desired)
+	if not p.hold and not p.auto then return nil, "off" end
+	if not ctx.wheelieHeld then return nil, "released" end
+	if ctx.rearBrakeHeld or throttle < -0.05 then return nil, "manual brake" end
+	if ctx.stoppieHeld then return nil, "stoppie" end
+	if ctx.crash or ctx.loopedOut then return nil, "crashed" end
+	if ctx.grind or ctx.vert or ctx.vertAir then return nil, "special surface" end
+	if (ctx.airTime or 0) > 0 then return nil, "airborne" end
+	if not Core.finite(dt) or dt <= 0 then return nil, "invalid step" end
+	local loop = ctx.model:GetAttribute("LoopOutDeg")
+	if not Core.finite(loop) then loop = 110 end
+	local ceiling = desired or math.rad(math.max(0, math.min(p.angle, loop - p.margin)))
+	local floor = p.auto and math.min(math.rad(math.max(0, loop - p.margin)),
+		math.max(0, (ctx.wheelieAngle or 0) - math.rad(p.releaseRate) * dt)) or 0
+	ceiling = math.max(ceiling, floor)
+	-- Stock raises target at 80 degrees/s. Preserve its ramp until the limit.
+	-- Use the real dt: stock does not skip slow frames either (0106:1959,2839).
+	local target = Core.finite(ctx.wheelieTarget) and ctx.wheelieTarget or 0
+	ctx.wheelieTarget = math.clamp(target, 0, math.max(0, ceiling - math.rad(80) * dt))
+	if Core.finite(ctx.wheelieAngle) then
+		ctx.wheelieAngle = math.min(ctx.wheelieAngle, ceiling)
+		if Core.finite(ctx.wheelieRate) then
+			ctx.wheelieRate = math.clamp(ctx.wheelieRate, -math.rad(p.releaseRate), math.max(0, (ceiling - ctx.wheelieAngle) / dt))
+		end
+	end
+	return ceiling, "holding", floor
+end
+function Core.after(ctx, guard, previousCrash, previousLoop, ceiling, floor, releaseRate)
 	if guard then
 		if not previousCrash then ctx.crash = nil end
 		if not previousLoop then ctx.loopedOut = previousLoop end
 	end
-	if ceiling and not previousCrash and not previousLoop and not ctx.crash then
+	if ceiling and not previousCrash and not previousLoop and not ctx.crash
+		and (ctx.airTime or 0) == 0 and not (ctx.grind or ctx.vert or ctx.vertAir) then
 		if Core.finite(ctx.wheelieAngle) and ctx.wheelieAngle > ceiling then
 			ctx.wheelieAngle = ceiling
 			ctx.wheelieRate = math.min(ctx.wheelieRate or 0, 0)
+		end
+		if floor and ctx.wheelieAngle < floor then
+			ctx.wheelieAngle = floor
+			ctx.wheelieRate = math.max(ctx.wheelieRate or 0, -math.rad(releaseRate))
 		end
 		ctx.loopedOut = previousLoop
 	end
@@ -171,8 +257,9 @@ if okRead then
 	if ok then cfg = Core.config(saved) end
 end
 local S = {alive = true, revision = 0, live = {}, conns = {}, patches = {}, tags = {},
-	writing = false, error = nil, saveTask = nil, session = nil}
-local Shell, Physics, Traffic
+	writing = false, error = nil, saveTask = nil, session = nil,
+	started = os.clock(), cashStart = LP:GetAttribute("Cash") or 0, guardSaves = 0, banks = 0}
+local Shell, Physics, Traffic, Loadout, Touch, refreshGrace
 local function safe(label, fn, ...)
 	local ok, err = pcall(fn, ...)
 	if not ok and S.error ~= tostring(err) then
@@ -203,6 +290,23 @@ local function attrGet(target, key) return target:GetAttribute(key) end
 local function attrSet(target, key, value) target:SetAttribute(key, value) end
 local function fieldGet(target, key) return target[key] end
 local function fieldSet(target, key, value) target[key] = value end
+local function manualWheelie()
+	return UIS:IsKeyDown(Enum.KeyCode.LeftControl) or UIS:IsKeyDown(Enum.KeyCode.RightControl)
+		or UIS:IsGamepadButtonDown(Enum.UserInputType.Gamepad1, Enum.KeyCode.ButtonL1)
+		or Touch and Touch.isHeld("Wheelie") or false
+end
+local function restoreActions(session)
+	local held = session.inputs.wheelieHeld
+	if held then held.old = manualWheelie() end
+	Core.restore(session.ctx, session.inputs, fieldGet, fieldSet)
+	Core.restore(session.ctx.model, session.tricks, attrGet, attrSet)
+	session.farm.started = false
+end
+local function resetFarm(session)
+	restoreActions(session)
+	session.farm, session.contactAdjust = {}, 0
+	session.modTime, session.modManual, session.modNote, session.lastCycles = 0, false, nil, 0
+end
 local function own(ctx)
 	if type(ctx) ~= "table" or not ctx.model or not ctx.model.Parent
 		or not ctx.chassis or not ctx.chassis.Parent or not ctx.seat or not ctx.seat.Parent then return false end
@@ -234,6 +338,7 @@ local function release()
 	safe("restore attributes", Core.restore, session.ctx.model, session.attrs, attrGet, attrSet)
 	S.writing = false
 	safe("restore grace", Core.restore, session.ctx, session.fields, fieldGet, fieldSet)
+	safe("restore actions", restoreActions, session)
 	restoreAudio(session)
 end
 local function bind(ctx)
@@ -243,7 +348,8 @@ local function bind(ctx)
 	local kind = ctx.model:GetAttribute("Kind")
 	if type(kind) ~= "string" or kind == "" then return end
 	if not cfg.profiles[kind] then cfg.profiles[kind] = Core.profile(cfg.default); saveConfig() end
-	local session = {ctx = ctx, key = kind, attrs = {}, fields = {}, base = {}, sounds = {}, rev = -1}
+	local session = {ctx = ctx, key = kind, attrs = {}, fields = {}, base = {}, sounds = {}, rev = -1,
+		inputs = {}, tricks = {}, farm = {}, contactAdjust = 0}
 	for _, spec in ipairs(Core.specs) do session.base[spec[2]] = ctx.model:GetAttribute(spec[2]) end
 	-- AirGravity defaults to workspace gravity, not a universal constant.
 	if session.base.AirGravity == nil then session.base.AirGravity = workspace.Gravity end
@@ -264,9 +370,10 @@ local function bind(ctx)
 	end)
 	S.session = session
 	local p = cfg.profiles[kind]
-	Log.info(("bind %s movement=%s speed=%.2f power=%.2f hold=%s crash=%s traffic=%s")
+	Log.info(("bind %s movement=%s speed=%.2f power=%.2f hold=%s crash=%s traffic=%s auto=%s scrape=%s modifiers=%s bank=%s")
 		:format(kind, tostring(p.movement), p.speed, p.power, tostring(p.hold),
-			tostring(p.crashGuard), tostring(p.trafficGuard)))
+			tostring(p.crashGuard), tostring(p.trafficGuard), tostring(p.auto), tostring(p.scrape),
+			tostring(p.modifiers), tostring(p.bank)))
 	return session
 end
 local function currentProfile()
@@ -283,6 +390,10 @@ local function setProfile(key, value)
 	profile[key] = value
 	profile = Core.profile(profile)
 	if S.session then cfg.profiles[S.session.key] = profile else cfg.default = profile end
+	if S.session and key == "crashGuard" then refreshGrace(S.session, profile) end
+	if S.session and (key == "auto" or key == "modifiers" or key == "scrape" or key == "bank" or key == "combo") then
+		resetFarm(S.session)
+	end
 	changed()
 end
 local function setGlobal(key, value)
@@ -317,21 +428,134 @@ local function patchField(target, key, wrapper)
 	S.patches[#S.patches + 1] = {target = target, key = key, old = target[key], last = wrapper}
 	target[key] = wrapper
 end
-local function refreshGrace(session, p)
+refreshGrace = function(session, p)
 	if p.crashGuard then
 		Core.put(session.ctx, session.fields, "noImpactUntil", os.clock() + 0.5, fieldGet, fieldSet)
 	elseif next(session.fields) then Core.restore(session.ctx, session.fields, fieldGet, fieldSet) end
+end
+local function protectTrick(session, p)
+	local ctx = session.ctx
+	if not p.crashGuard or (ctx.airTime or 0) > 0 then return end
+	local trick = ctx.model:GetAttribute("Trick")
+	local corner = trick == 4 and math.abs(ctx.speed or 0) > 3
+		and math.abs((ctx.speed or 0) * (ctx.groundYawRate or 0)) / 9.81 > 0.35
+	if trick == 5 or corner then
+		Core.put(ctx.model, session.tricks, "Trick", 0, attrGet, attrSet)
+		-- Native grounded Superman is consumed, not a persistent preference.
+		session.tricks.Trick.old = 0
+		S.guardSaves += 1
+		Log.info("guard cancelled risky ground trick " .. tostring(trick))
+	end
+end
+local function rotateModifiers(session, p, dt, enabled)
+	local ctx, farm = session.ctx, session.farm
+	local record = session.tricks.Trick
+	local current = ctx.model:GetAttribute("Trick") or 0
+	if record and current ~= record.last then
+		session.tricks.Trick = nil
+		session.modManual = current ~= 0
+	end
+	if not enabled or not p.modifiers or not Loadout or not Loadout.inSlot then
+		Core.restore(ctx.model, session.tricks, attrGet, attrSet)
+		return
+	end
+	if current ~= 0 and not session.tricks.Trick then session.modManual = true end
+	if session.modManual then
+		if current ~= 0 then return end
+		session.modManual = false
+	end
+	local passenger = ctx.model:FindFirstChild("PassengerSeat")
+	local occupied = passenger and passenger.Occupant ~= nil
+	local choices, names = {}, {}
+	for slot = 1, 4 do
+		local item = Loadout.inSlot("ground", slot)
+		if item and Core.safeGround[item.id]
+			and (not occupied or item.id == 3) and not names[item.name] then
+			names[item.name] = true
+			choices[#choices + 1] = item.id
+		end
+	end
+	if #choices == 0 then
+		Core.restore(ctx.model, session.tricks, attrGet, attrSet)
+		session.modNote = "no compatible equipped tricks"
+		return
+	end
+	local start = ((farm.cycles or 0) + (farm.segments or 0)) % #choices
+	local second = math.min(math.floor((session.modTime or 0) / 0.45), 1)
+	local id = choices[(start + second) % #choices + 1]
+	Core.put(ctx.model, session.tricks, "Trick", id, attrGet, attrSet)
+	session.modTime = (session.modTime or 0) + dt
+	session.modNote = #choices > 1 and "two equipped modifiers" or "one compatible modifier"
+end
+local function prepareRiding(session, p, dt, throttle)
+	local ctx, farm = session.ctx, session.farm
+	session.target = nil
+	local blocked = UIS:GetFocusedTextBox() ~= nil or LP:GetAttribute("PhoneOut") == true
+		or ctx.rearBrakeHeld or throttle < -0.05 or ctx.stoppieHeld or ctx.crash or ctx.loopedOut
+		or ctx.grind or ctx.vert or ctx.vertAir or (ctx.airTime or 0) > 0
+	local target, targetReason
+	if (p.auto or p.hold) and not blocked then
+		local angle, clearance
+		if p.scrape and Physics.tail then
+			local point
+			angle, point = Physics.tail(ctx.model)
+			if not point then angle = nil end
+			if Physics.tailGround then clearance = Physics.tailGround(ctx.model) end
+		end
+		target, targetReason, session.contactAdjust = Core.holdTarget(ctx, p, angle, clearance, session.contactAdjust, dt)
+		if not target then blocked = true end
+	end
+	Core.farm(farm, p, ctx, dt, blocked, LP:GetAttribute("Cash"), LP:GetAttribute("CashHold") or 0)
+	if not p.auto or blocked or farm.phase == "banking" or farm.phase == "linking" then
+		restoreActions(session)
+		session.modTime = 0
+	else
+		if not farm.started then
+			if type(ctx.setWheelie) == "function" then ctx:setWheelie(true) end
+			farm.started = true
+		end
+		Core.put(ctx, session.inputs, "wheelieHeld", true, fieldGet, fieldSet)
+		if farm.phase == "lowering" then
+			target = math.max(0, (ctx.wheelieAngle or 0) - math.rad(p.releaseRate) * dt)
+		end
+	end
+	rotateModifiers(session, p, dt, p.auto and not blocked and farm.phase == "holding"
+		and (ctx.wheelieAngle or 0) > math.rad(10))
+	if farm.phase == "lowering" then session.modTime = 0 end
+	if blocked then return nil, targetReason or "manual / surface pause" end
+	if p.auto and farm.phase == "banking" then return nil, "waiting for native bank + Cash" end
+	if p.auto and farm.phase == "linking" then return nil, "linking native combo" end
+	session.target = target and math.deg(target)
+	local ceiling, reason, floor = Core.assist(ctx, p, dt, throttle, target)
+	return ceiling, ceiling and (p.auto and farm.phase or "holding") or reason, floor
 end
 local function install()
 	local pm = RS:FindFirstChild("ScooterPhysics")
 	local tm = RS:FindFirstChild("HighwayTraffic")
 	assert(pm and tm, "Bike Universe modules not replicated")
 	Physics, Traffic = require(pm), require(tm)
+	local lm, tc = RS:FindFirstChild("TrickLoadout"), RS:FindFirstChild("TouchControls")
+	Loadout, Touch = lm and require(lm), tc and require(tc)
 	assert(type(Physics.step) == "function" and type(Traffic.collide) == "function", "Drive API changed")
+	if type(Physics.new) == "function" then
+		local make = Physics.new
+		patchField(Physics, "new", function(...)
+			local result = table.pack(make(...))
+			if S.alive and own(result[1]) then
+				safe("constructor grace", function()
+					local session = bind(result[1])
+					if session then refreshGrace(session, cfg.profiles[session.key]) end
+				end)
+			end
+			return table.unpack(result, 1, result.n)
+		end)
+	end
 	local original = Physics.step
 	patchField(Physics, "step", function(ctx, dt, throttle, steer, coasting, ...)
-		if not S.alive or coasting or ctx ~= active() then return original(ctx, dt, throttle, steer, coasting, ...) end
-		local session, ceiling, p
+		if not S.alive or coasting or ctx ~= active() or not Core.finite(dt) or dt <= 0 then
+			return original(ctx, dt, throttle, steer, coasting, ...)
+		end
+		local session, ceiling, floor, p
 		local previousCrash, previousLoop = ctx.crash, ctx.loopedOut
 		local prepared = safe("pre-step", function()
 			session = bind(ctx)
@@ -339,7 +563,8 @@ local function install()
 			applyTune(session)
 			p = cfg.profiles[session.key]
 			refreshGrace(session, p)
-			ceiling = Core.assist(ctx, p, dt, throttle)
+			protectTrick(session, p)
+			ceiling, session.assist, floor = prepareRiding(session, p, dt, throttle)
 		end)
 		if not prepared then
 			S.writing = false
@@ -347,7 +572,34 @@ local function install()
 		end
 		local result = table.pack(original(ctx, dt, throttle, steer, coasting, ...))
 		if prepared and p and session == S.session and own(ctx) then
-			safe("post-step", Core.after, ctx, p.crashGuard, previousCrash, previousLoop, ceiling)
+			safe("post-step", function()
+				if (ctx.airTime or 0) == 0 and (ctx.wheelieAngle or 0) > math.rad(10) then
+					session.wheelieSeconds = (session.wheelieSeconds or 0) + dt
+				else session.wheelieSeconds = 0 end
+				-- Observe the stock result BEFORE either local guard clears its flags.
+				local failure = tostring(ctx.crash) .. "|" .. tostring(ctx.loopedOut)
+				if (ctx.crash or ctx.loopedOut) and failure ~= session.lastFailure then
+					if p.crashGuard and not previousCrash and not previousLoop then S.guardSaves += 1 end
+					Log.info(("stock outcome %s crash=%s loop=%s kmh=%.1f angle=%.1f rate=%.1f held=%s brake=%s wheelie=%.2fs dt=%.3f"):format(
+						session.key, tostring(ctx.crash), tostring(ctx.loopedOut), math.abs(ctx.speed or 0) * 3.6,
+						math.deg(ctx.wheelieAngle or 0), math.deg(ctx.wheelieRate or 0), tostring(ctx.wheelieHeld),
+						tostring(ctx.rearBrakeHeld), session.wheelieSeconds, dt))
+				end
+				session.lastFailure = failure
+				Core.after(ctx, p.crashGuard, previousCrash, previousLoop, ceiling, floor, p.releaseRate)
+				protectTrick(session, p)
+				if session.lastPhase ~= session.farm.phase or session.lastAssist ~= session.assist then
+					session.lastPhase, session.lastAssist = session.farm.phase, session.assist
+					Log.info(("farm %s phase=%s assist=%s target=%s"):format(session.key,
+						tostring(session.farm.phase), tostring(session.assist), tostring(session.target)))
+				end
+				local cycles = session.farm.cycles or 0
+				if cycles > (session.lastCycles or 0) then
+					S.banks += cycles - (session.lastCycles or 0)
+					session.lastCycles = cycles
+					Log.info("bank wait complete; observed total Cash delta=" .. tostring(session.farm.bankCash))
+				end
+			end)
 		end
 		return table.unpack(result, 1, result.n)
 	end)
@@ -505,9 +757,14 @@ local function preset(name)
 		p.speed, p.power, p.grip, p.brakes = 1.8, 2.5, 1.5, 1.5
 	elseif name == "Stunt" then
 		p.stunts, p.hold, p.pop, p.strength = true, true, 1.2, 1.25
+	elseif name == "Farm" or name == "Scrape Farm" then
+		p.auto, p.crashGuard, p.trafficGuard, p.modifiers, p.bank, p.combo = true, true, true, true, true, true
+		p.scrape = name == "Scrape Farm"
 	end
 	bind(active())
+	if S.session then resetFarm(S.session) end
 	if S.session then cfg.profiles[S.session.key] = p else cfg.default = p end
+	if S.session then refreshGrace(S.session, p) end
 	changed()
 end
 local function buildUI()
@@ -521,6 +778,11 @@ local function buildUI()
 	local W = Shell.W
 	local function toggle(page, label, key, desc, global)
 		W.toggle(page, {label = label, key = key, desc = desc,
+			ready = function()
+				if key == "scrape" then return Physics and type(Physics.tail) == "function" and type(Physics.tailGround) == "function", "Tail geometry API unavailable" end
+				if key == "modifiers" then return Loadout and type(Loadout.inSlot) == "function", "Native trick loadout unavailable" end
+				return true
+			end,
 			get = function() return global and cfg[key] or (not global and currentProfile()[key]) end,
 			set = function(value) if global then setGlobal(key, value) else setProfile(key, value) end end})
 	end
@@ -529,7 +791,12 @@ local function buildUI()
 		W.slider(page, {label = label, key = key, min = range[1], max = range[2],
 			get = function() return global and cfg[key] or currentProfile()[key] end,
 			set = function(value) if global then setGlobal(key, value) else setProfile(key, value) end end,
-			fmt = function(value) return (key == "angle" or key == "fov") and string.format("%.0f°", value) or string.format("%.2fx", value) end})
+			fmt = function(value)
+				if key == "bankSeconds" or key == "segmentSeconds" then return string.format("%.0fs", value) end
+				if key == "releaseRate" then return string.format("%.0f°/s", value) end
+				if key == "angle" or key == "fov" or key == "scrapeOffset" or key == "margin" then return string.format("%.1f°", value) end
+				return string.format("%.2fx", value)
+			end})
 	end
 	local speed = Shell.page("Speed")
 	W.section(speed, "Movement")
@@ -537,9 +804,14 @@ local function buildUI()
 		local session = S.session
 		return session and ("Bike: " .. session.key) or "No owned bike — editing defaults"
 	end)
-	toggle(speed, "Movement tuning", "movement")
+	W.statusRow(speed, function()
+		local ctx = active()
+		return ctx and ("Ride: %.0f km/h · stock tune: %.0f km/h"):format(math.abs(ctx.speed or 0) * 3.6,
+			S.session and S.session.base.MaxSpeedKmh or 80) or "Ride: no owned bike"
+	end)
+	toggle(speed, "Movement tuning", "movement", "Speed-hacking kick recorded. Starts OFF each load; server limit unknown.")
 	for _, row in ipairs({{"Top speed", "speed"}, {"Acceleration", "power"}, {"Reverse speed", "reverse"}, {"Coasting drag", "coast"}}) do slider(speed, row[1], row[2]) end
-	for _, name in ipairs({"Balanced", "Fast", "Stunt", "Stock"}) do
+	for _, name in ipairs({"Balanced", "Fast", "Stunt", "Farm", "Scrape Farm", "Stock"}) do
 		W.button(speed, name, "Apply to this bike type", function() preset(name) end)
 	end
 	local handling = Shell.page("Handling")
@@ -551,8 +823,38 @@ local function buildUI()
 	for _, row in ipairs({{"Spring frequency", "frequency"}, {"Compression damping", "damping"}, {"Rebound damping", "rebound"}, {"Suspension travel", "travel"}, {"Pitch damping", "pitch"}}) do slider(handling, row[1], row[2]) end
 	local stunts = Shell.page("Stunts")
 	W.section(stunts, "Wheelie assistance")
-	toggle(stunts, "Wheelie hold assist", "hold", "Hold the normal wheelie control. Release or brake to lower.")
+	toggle(stunts, "Wheelie hold assist", "hold", "Hold Ctrl / L1 / touch wheelie. Release or Space / B to lower.")
+	toggle(stunts, "Auto wheelie", "auto", "Hands-free wheelie. Steer and throttle manually; brake, phone or text pauses.")
+	toggle(stunts, "Scrape mode", "scrape", "Uses this bike's real tail contact. Unreachable scrape angles pause the assist.")
+	W.statusRow(stunts, function()
+		local session = S.session
+		return session and ("Wheelie: %.1f° · %.1fs · %s"):format(math.deg(session.ctx.wheelieAngle or 0),
+			session.wheelieSeconds or 0, session.assist or "idle")
+			.. (session.target and (" · target %.1f°"):format(session.target) or "") or "Wheelie: no owned bike"
+	end)
 	slider(stunts, "Hold angle", "angle")
+	slider(stunts, "Scrape angle offset", "scrapeOffset")
+	slider(stunts, "Loop-out margin", "margin")
+	W.section(stunts, "Chain farming")
+	toggle(stunts, "Auto modifiers", "modifiers", "Two compatible equipped ground tricks. Manual tricks take priority.")
+	toggle(stunts, "Combo linking", "combo", "Completes three varied entries with short gaps, then holds the chain.")
+	slider(stunts, "Combo segment", "segmentSeconds")
+	toggle(stunts, "Automatic banking", "bank", "Requires Auto wheelie. Gently lowers, waits for stock cash-out and observed Cash.")
+	slider(stunts, "Bank interval", "bankSeconds")
+	slider(stunts, "Release speed", "releaseRate")
+	W.button(stunts, "Bank chain now", "Gently release and wait for the game's normal payout", function()
+		if S.session and currentProfile().auto then S.session.farm.forceBank = true end
+	end)
+	W.statusRow(stunts, function()
+		local session = S.session
+		return session and ("Farm: %s · links %d/3 · %s"):format(session.farm.phase or "off",
+			session.farm.segments or 0, session.modNote or "manual tricks") or "Farm: waiting for owned bike"
+	end)
+	W.statusRow(stunts, function()
+		local delta = (LP:GetAttribute("Cash") or S.cashStart) - S.cashStart
+		return ("Cash delta: %.0f · %.0f/min · banks %d · guard saves %d"):format(delta,
+			delta * 60 / math.max(1, os.clock() - S.started), S.banks, S.guardSaves)
+	end)
 	toggle(stunts, "Stunt tuning", "stunts")
 	for _, row in ipairs({{"Wheelie strength", "strength"}, {"Pop height", "pop"}, {"Air gravity", "gravity"}, {"Air trick speed", "airRate"}, {"Tailwhip speed", "whip"}}) do slider(stunts, row[1], row[2]) end
 	local guards = Shell.page("Guards")
@@ -560,6 +862,12 @@ local function buildUI()
 	toggle(guards, "Physics crash guard", "crashGuard", "New physics crashes and impact grace; not every trick or server crash.")
 	toggle(guards, "Traffic contact guard", "trafficGuard", "Skips this bike's local traffic collision response; not server immunity.")
 	W.statusRow(guards, function() return "Server validation is unknown. Existing crashes are not reversed." end)
+	W.statusRow(guards, function()
+		local police, traffic = LP:GetAttribute("Set_Police"), LP:GetAttribute("Set_Traffic")
+		return ("Native police: %s · traffic: %s · wanted %s (keep both ON)"):format(
+			police == nil and "unknown" or police and "ON" or "OFF",
+			traffic == nil and "unknown" or traffic and "ON" or "OFF", tostring(LP:GetAttribute("WantedStars") or 0))
+	end)
 	local view = Shell.page("View")
 	W.section(view, "Camera")
 	toggle(view, "Fixed FOV", "camera", "Replaces only the game's dynamic FOV script while enabled.", true)
@@ -583,10 +891,13 @@ local function buildUI()
 end
 local function start()
 	install()
+	Log.info("movement starts OFF: speed-hacking kick recorded 2026-10-28; saved multipliers retained")
 	G[GKEY] = {build = BUILD_VERSION, destroy = destroy, embedded = true,
 		setProfile = setProfile, setGlobal = setGlobal, panic = panic,
 		status = function() return {build = BUILD_VERSION, bike = S.session and S.session.key,
-			error = S.error, profile = Core.profile(currentProfile())} end}
+			error = S.error, profile = Core.profile(currentProfile()),
+			farm = S.session and S.session.farm.phase, assist = S.session and S.session.assist,
+			banks = S.banks, guardSaves = S.guardSaves, cashDelta = (LP:GetAttribute("Cash") or S.cashStart) - S.cashStart} end}
 	buildUI()
 	S.conns[#S.conns + 1] = UIS.InputBegan:Connect(function(input, processed)
 		if processed or UIS:GetFocusedTextBox() then return end

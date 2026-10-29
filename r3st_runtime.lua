@@ -1,8 +1,10 @@
--- R3ST runtime v2026-10-27.1 (2026-10-27)
+-- R3ST runtime v2026-10-29.2 (2026-10-29)
 -- Pure lifecycle and bounded profiling helpers; no hooks, remotes or auto-start.
+-- 2026-10-29.2 Keep failed disarm visible even when recovery is requested OFF.
+-- 2026-10-29.1 Teleport handoff helpers: one guarded Hub loader per server.
 -- REINJECT_EXEMPT: dependency factory; owns resources only through returned handles.
 local Runtime = {}
-Runtime.VERSION = "2026-10-27.1"
+Runtime.VERSION = "2026-10-29.2"
 local PATHS = { "../scripts/%s", "%s", "scripts/%s" }
 
 function Runtime.resolve(file, read, compile)
@@ -109,6 +111,169 @@ function Runtime.runModule(o)
 		local ready, reason = Runtime.mounted(handle, o.host)
 		return ready, reason, true
 	end)
+end
+
+-- Teleport handoff. The queued loader only runs hub.lua (never admin.lua), once,
+-- after game and LocalPlayer readiness, and only while the token file still holds
+-- its token: unload or disabling the setting voids queued work we cannot dequeue.
+Runtime.HANDOFF_FILE = "r3st_handoff.txt"
+function Runtime.queueApi(globals)
+	local function pick(t, key) return type(t) == "table" and type(t[key]) == "function" and t[key] or nil end
+	return pick(globals, "queue_on_teleport") or pick(globals, "queueonteleport")
+		or pick(globals.syn, "queue_on_teleport") or pick(globals.fluxus, "queue_on_teleport")
+end
+function Runtime.handoffSource(token)
+	local paths = {}
+	for i, pattern in ipairs(PATHS) do paths[i] = ("%q"):format(pattern:format("hub.lua")) end
+	return ([[
+local TOKEN, FILE = %q, %q
+local G = getgenv()
+local function note(text)
+	pcall(function()
+		if makefolder and isfolder and not isfolder("logs") then makefolder("logs") end
+		local line = os.date("[%%H:%%M:%%S] ") .. text .. "\n"
+		if appendfile and isfile and isfile("logs/r3st_handoff.log") then appendfile("logs/r3st_handoff.log", line)
+		else writefile("logs/r3st_handoff.log", line) end
+	end)
+end
+if not game:IsLoaded() then game.Loaded:Wait() end
+local Players = game:GetService("Players")
+local deadline = os.clock() + 30
+while not Players.LocalPlayer and os.clock() < deadline do task.wait(0.1) end
+if not Players.LocalPlayer then return note("SKIP LocalPlayer never became ready") end
+local armed, current = pcall(readfile, FILE)
+if not armed or current ~= TOKEN then return note("SKIP stale or disarmed handoff") end
+-- Stale queued copies must never claim the destination's one-run guard.
+if G.__R3ST_HANDOFF_RUN then return end
+G.__R3ST_HANDOFF_RUN = TOKEN
+local hub = G.__R3ST_HUB
+if (type(hub) == "table" and hub.ready) or G.__R3ST_BOOT_BUSY then return note("SKIP Hub already running") end
+local source
+for _, path in ipairs({ %s }) do
+	local found, body = pcall(readfile, path)
+	if found and type(body) == "string" then source = body; break end
+end
+if not source then return note("SKIP hub.lua missing") end
+local chunk, err = loadstring(source, "=hub.lua")
+if not chunk then return note("FAILED hub.lua compile: " .. tostring(err)) end
+G.__R3ST_HANDOFF_BOOT = TOKEN
+local ran, result = pcall(chunk)
+G.__R3ST_HANDOFF_BOOT = nil
+note((ran and type(result) == "table" and result.ready) and "OK Hub loaded after teleport"
+	or ("FAILED Hub boot: " .. tostring(result)))
+]]):format(token, Runtime.HANDOFF_FILE, table.concat(paths, ", "))
+end
+
+-- o: globals, queue, write, jobId, owner, token(). One queued loader per server
+-- (JobId); reloads reuse it. Only the arming owner may void it on unload.
+function Runtime.handoff(o)
+	local H, globals, event, previous = {}, o.globals, nil, nil
+	local function record()
+		local rec = globals.__R3ST_HANDOFF_QUEUE
+		if type(rec) == "table" and rec.job == o.jobId then return rec end
+	end
+	function H.available()
+		if type(o.queue) ~= "function" then return false, "executor has no queue_on_teleport" end
+		if type(o.write) ~= "function" then return false, "executor has no writefile" end
+		return true
+	end
+	function H.arm()
+		local ok, why = H.available()
+		if not ok then return false, why end
+		local rec = record()
+		if not rec then
+			local token = tostring(o.token())
+			local queued, err = pcall(o.queue, Runtime.handoffSource(token))
+			if not queued or err == false then event = "Queue failed: " .. tostring(err); return false, event end
+			rec = { token = token, job = o.jobId }
+			globals.__R3ST_HANDOFF_QUEUE = rec
+		end
+		local wrote, err = pcall(o.write, Runtime.HANDOFF_FILE, rec.token)
+		if not wrote then event = "Token write failed: " .. tostring(err); return false, event end
+		if rec.owner ~= o.owner then previous = rec.owner end
+		rec.owner, event = o.owner, nil
+		return true
+	end
+	function H.release() -- a failed replacement hands ownership back
+		local rec = record()
+		if rec and rec.owner == o.owner then rec.owner = previous end
+	end
+	function H.disarm(force)
+		local rec = record()
+		if not rec or (rec.owner ~= o.owner and not force) then return false end
+		local wrote, err = pcall(o.write, Runtime.HANDOFF_FILE, "")
+		if not wrote then event = "Could not disarm queued handoff: " .. tostring(err); return false, event end
+		rec.owner, event = nil, nil
+		return true
+	end
+	function H.armed()
+		local rec = record()
+		return rec ~= nil and rec.owner == o.owner
+	end
+	function H.event(text) event = text end
+	-- Status only; a failed teleport leaves the loader queued for the next one.
+	function H.watch(player, teleport, connect, notify)
+		local function on(state)
+			if not H.armed() then return end
+			if state == Enum.TeleportState.Started then
+				event = "Teleporting: the Hub reloads after arrival"
+				notify(false)
+			elseif state == Enum.TeleportState.Failed then
+				event = "Teleport failed: still armed for the next transfer"
+				notify(true)
+			end
+		end
+		pcall(function() connect(player.OnTeleport, on) end)
+		pcall(function()
+			connect(teleport.TeleportInitFailed, function(who)
+				if who == player then on(Enum.TeleportState.Failed) end
+			end)
+		end)
+	end
+	function H.status(enabled)
+		local ok, why = H.available()
+		if not ok then return false, "Unavailable: " .. why end
+		if event then return true, event end
+		if not enabled then return true, "Off: teleports leave the Hub unloaded" end
+		if H.armed() then return true, "Armed: the Hub reloads once after the next teleport" end
+		return true, "Not armed"
+	end
+	return H
+end
+
+-- One reusable notice with a single pending timer that each update replaces, so
+-- nothing stacks. Reduced motion paints instantly and hides without an exit delay.
+function Runtime.notice(o)
+	local N, ticket, timer, up = {}, 0, nil, false
+	function N.cancel()
+		if timer then pcall(o.cancel, timer) end
+		timer = nil
+	end
+	function N.show(text, isError)
+		if not o.alive() then return end
+		N.cancel()
+		ticket += 1
+		local mine, still = ticket, o.still()
+		local function later(seconds, fn)
+			timer = o.delay(seconds, function()
+				timer = nil
+				if o.alive() and ticket == mine then fn() end
+			end)
+		end
+		-- One line only: newlines would spill out of a fixed-height card.
+		text = (tostring(text or ""):gsub("%s+", " ")):match("^%s*(.-)%s*$")
+		if text ~= "" then
+			up = true
+			o.paint(true, still and 0 or o.enter, text, isError)
+			return later(isError and 5 or 3.5, function() N.show("") end)
+		end
+		if not up then return o.done() end
+		up = false
+		o.paint(false, still and 0 or o.exit)
+		if still then return o.done() end
+		later(o.exit, o.done)
+	end
+	return N
 end
 
 -- O(1) per frame, one connection, no per-frame files/sorting or heap inspection.

@@ -38,7 +38,14 @@ For mirrored Luau: load Potassium's required skills, edit canonical source, pass
 
 Read `docs/TELEMETRY.md` before telemetry work. It is the common evidence plane for local MCP agents, repo agents, and remote friend support.
 
-Required: explicit ignored local opt-in; HTTPS; per-install random ID/auth; structured schema; build/executor/game context; incremental allowlisted logs; redaction; size/rate bounds; disk queue/retry; revocation; no Roblox identity. Endpoint, credentials, stored events, and enrollment records stay private.
+Required: explicit ignored local opt-in; HTTPS; per-install random UUID/auth;
+metadata-only schema 3; build/game context; strict field/enum allowlists;
+size/rate bounds; validated disk queue/retry; revocation; no Roblox identity.
+Never upload raw logs, arbitrary nested data, free-form messages, executor
+fingerprints or JobId. `collect()` is a non-reading compatibility stub. Old
+queues are not replayed or deleted. Endpoint, credentials, stored events and
+enrollment records stay private. A private service must support schema 3;
+publishing the client does not authorize service changes or live uploads.
 
 Live MCP loop:
 
@@ -47,7 +54,11 @@ local T=getgenv().__RESTHUB_TELEMETRY
 return T and T.status()
 ```
 
-Use `collect()` + `flush()` for fresh evidence. Use `emit("agent.verification", source, evidence, severity)` for exact checks/build stamps—not unsupported conclusions. Remote diagnosis starts by filtering private telemetry by random install ID, newest session, build, game/place, source, severity, and kind.
+Use `status()`/`snapshot()` for metadata. `collect()` never reads logs. For exact
+checks, `emit("agent.verification", "agent", {check="privacy", result="pass"}, "info")`
+uses only documented enums, never free-form evidence. Emit only measured facts.
+Runtime inspection/upload still needs session authorization. Do not read private
+telemetry configs, queues or enrollment files while developing this repo.
 
 ## 4. Immutable publish sequence
 

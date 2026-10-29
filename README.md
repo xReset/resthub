@@ -8,23 +8,19 @@ Public, code-only distribution for R3ST Hub. The maintained sources are mirrored
 loadstring(httpget("https://raw.githubusercontent.com/xReset/resthub/main/loader.lua"), "=resthub")()
 ```
 
-The loader fetches a release manifest, downloads executable files from its immutable 40-character commit revision, verifies SHA-256 hashes, compiles the complete release before updating cache, and loads only the module matching the current Roblox universe/place. Release `2026-10-28.1` includes every module in the canonical Hub registry (30 games), the shared runtime, UI, logger and Anims. The exact game identities, files and hashes live in [`manifest.json`](manifest.json), generated from the canonical registry rather than a separate hand-maintained game list.
+The loader fetches a release manifest, downloads executable files from its immutable 40-character commit revision, verifies SHA-256 hashes, compiles the complete release before updating cache, and loads only the module matching the current Roblox universe/place. Release `2026-10-29.1` includes every module in the canonical Hub registry (31 games), the shared runtime, UI, logger and Anims. The exact game identities, files and hashes live in [`manifest.json`](manifest.json), generated from the canonical registry rather than a separate hand-maintained game list.
 
-This includes Backseat Rally's saved 1–3x downforce/gravity control, the latest Clover controls and performance fixes, and RoChess solvers. Gravity defaults to stock 1x; live jump handling is not certified. Existing gameplay and server-acceptance limits remain unchanged.
+This includes Vantage, the current Hub teleport handoff/notifications, current Bike Universe controls, and privacy-hardened reports/catalogs. Backseat Rally's saved 1–3x downforce/gravity control, Clover controls and RoChess solvers remain included. Gravity defaults to stock 1x; live jump handling is not certified. Offline tests and disk hashes do not prove gameplay or server acceptance.
 
 Loader v6 verifies the shared runtime and logger for fresh installs before Hub startup and prevents a matching place from overriding a foreign universe. This release requires v6 so an older cached loader cannot skip the runtime. Gates and mocked lifecycle tests do not certify combat, active-harvest input priority, rewards or server acceptance.
 
 ## Diagnostics
 
-Manual **Send report** keeps `logs/r3st_report_last.txt` locally. Sending requires a private HTTPS destination supplied locally through `getgenv().__R3ST_REPORT_URL`; no report endpoint is included in public source.
+Manual **Send report** keeps `logs/r3st_report_last.txt` locally and sends only bounded build metadata and public game/place IDs. It never sends raw logs, notes, player identity or executor fingerprints. Sending requires a private HTTPS destination supplied locally through `getgenv().__R3ST_REPORT_URL`; no endpoint is included in public source.
 
-Remote diagnostics are disabled by default. A friend must explicitly create `resthub_telemetry.json` in their Potassium workspace:
+Remote diagnostics are disabled by default. Telemetry v3 requires an explicitly opted-in local config, random installation UUID and per-install ingest key. It accepts only typed metadata/enums, never raw logs or free-form/nested event data. Old queues are left untouched and never replayed. The receiver still sees network IPs and random support IDs, so this is not anonymity.
 
-```json
-{"optIn":true,"endpoint":"https://PRIVATE-ENDPOINT.example/upload","installId":"RANDOM-NONIDENTIFYING-ID"}
-```
-
-The endpoint is intentionally not included in git. Telemetry continuously ships structured session/build/capability data and incremental allowlisted R3ST log tails through a bounded local retry queue. It does not send Roblox usernames. MCP agents can inspect and emit evidence through `getgenv().__RESTHUB_TELEMETRY`; see [`docs/TELEMETRY.md`](docs/TELEMETRY.md).
+The private service must support schema 3 before uploads work; publication does not upgrade that service or authorize live uploads. MCP agents can inspect safe status and emit typed evidence through `getgenv().__RESTHUB_TELEMETRY`; see [`docs/TELEMETRY.md`](docs/TELEMETRY.md) for the contract and synthetic configuration example.
 
 ## Maintenance
 

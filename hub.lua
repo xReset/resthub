@@ -1,6 +1,9 @@
--- R3ST Hub v2026-10-27.2 (2026-10-27)
+-- R3ST Hub v2026-10-29.3 (2026-10-29)
 -- Client UI shell. Re-inject safe; RightShift show/hide; K unload.
 -- Changelog:
+-- 2026-10-29.3 Manual reports send bounded build metadata, never raw logs or player identity.
+-- 2026-10-29.2 Reload once after teleports (no Admin autostart); black/purple notifications.
+-- 2026-10-29.1 Register Vantage ESP, held softaim and normal grounded bhop.
 -- 2026-10-27.2 Add RoChess local Stockfish module; keep its backend outside the Hub.
 -- 2026-10-27.1 Stage shell before teardown; honest reload readiness and opt-in frame captures.
 -- 2026-10-26.13-public Keep private report destinations out of public source.
@@ -29,7 +32,7 @@
 -- .51 Restore Auto-start Admin setting.
 -- .50 Auto-start Admin except in Critical Strike.
 -- HOST-MOUNT CONTRACT (hub skill S6, migration step)
-local BUILD_VERSION = "2026-10-27.2"
+local BUILD_VERSION = "2026-10-29.3"
 local Runtime
 for _, path in ipairs({ "../scripts/r3st_runtime.lua", "r3st_runtime.lua", "scripts/r3st_runtime.lua" }) do
 	local found, source = pcall(readfile, path)
@@ -179,46 +182,40 @@ local function tween(obj, props, dur, style)
 	end
 	return nil
 end
--- Floating toast: slides in at the bottom of the window and clears itself, so
--- feedback never shoves page content around or lingers stale.
-local function setLaunchToast(text, isError)
-	if not launchToast or not launchToast.Parent then return end
-	local ticket = (launchToast:GetAttribute("R3ST_Ticket") or 0) + 1
-	launchToast:SetAttribute("R3ST_Ticket", ticket)
-	launchToast.Text = text or ""
-	launchToast.TextColor3 = isError and C.bad or C.text
-	local edge = launchToast:FindFirstChildOfClass("UIStroke")
-	if edge then edge.Color = isError and C.bad or C.accent end
-	launchToast.Visible = launchToast.Text ~= ""
-	local rest, below = UDim2.new(0.5, 0, 1, -28), UDim2.new(0.5, 0, 1, -16)
-	if launchToast.Visible and ticket > 1 and launchToast:GetAttribute("R3ST_Up") then
-		-- Updating a toast must not rescale all its text.
-		tween(launchToast, { Position = rest }, MOTION.fast)
-	elseif launchToast.Visible then
-		launchToast.Position = below
-		tween(launchToast, { Position = rest }, MOTION.spring, "spring")
+-- Floating notification: one reused black card with a purple edge that fades up
+-- at the bottom of the window. Runtime.notice owns its single replaceable timer.
+local toastLabel, toastMark, toastEdge -- built with the window below
+local function paintToast(shown, dur, text, isError)
+	if text then
+		local tone = isError and C.bad or C.accent
+		toastLabel.Text, toastLabel.TextColor3 = text, isError and C.bad or C.text
+		toastMark.BackgroundColor3, toastEdge.Color = tone, tone
 	end
-	launchToast:SetAttribute("R3ST_Up", launchToast.Visible)
-	task.delay(isError and 5 or 3.5, function()
-		if launchToast and launchToast.Parent
-			and launchToast:GetAttribute("R3ST_Ticket") == ticket then
-			launchToast:SetAttribute("R3ST_Up", false)
-			tween(launchToast, { Position = below }, MOTION.exit, "in")
-			task.delay(MOTION.exit, function()
-				if launchToast and launchToast.Parent
-					and launchToast:GetAttribute("R3ST_Ticket") == ticket then
-					launchToast.Visible = false
-				end
-			end)
-		end
-	end)
+	if shown and not launchToast.Visible then -- enter from slightly below
+		paintToast(false, 0)
+		launchToast.Visible = true
+	end
+	local a = shown and 0 or 1
+	tween(launchToast, { Position = UDim2.new(0.5, 0, 1, shown and -SPACE.xl or -SPACE.md),
+		BackgroundTransparency = shown and 0.04 or 1 }, dur)
+	tween(toastLabel, { TextTransparency = a }, dur)
+	tween(toastMark, { BackgroundTransparency = a }, dur)
+	tween(toastEdge, { Transparency = shown and 0.35 or 1 }, dur)
 end
+local toast = Runtime.notice({
+	alive = function() return alive and launchToast ~= nil and launchToast.Parent ~= nil and toastLabel ~= nil end,
+	still = function() return state.reduceMotion or (UIKit and UIKit.reduceMotion) end,
+	delay = task.delay, cancel = task.cancel, enter = MOTION.fast, exit = MOTION.exit,
+	paint = paintToast, done = function() launchToast.Visible = false end,
+})
+local setLaunchToast = toast.show
 state = {
 	favorites = {}, recent = {}, page = "Home", selectedGame = "Ghost Driver", windowX = 0,
 	windowY = 0, windowW = 1180, windowH = 700, theme = "Midnight", blur = 5, autosave = true,
 	autoOpen = true,
 	autoAdmin = true, -- rejoin is automatic, so the ] bar comes back with the hub
 	reduceMotion = false,
+	teleportRecovery = true, -- queue one Hub reload for match/server transfers
 	navHidden = false, -- Ctrl+B or the header menu button slides the sidebar away
 }
 local function connect(signal, fn)
@@ -324,6 +321,11 @@ local REGISTRY = {
 	{ id = "evade", moduleKey = "Evade", name = "Evade", cat = "Survival", placeId = 9872472334,
 		gameId = 3647333358, file = "evade_kit.lua", embed = true, gkey = "__EVADE_KIT",
 		desc = "Bhop, first-person body, revive and awareness kit.",
+	},
+	{ id = "vantage", moduleKey = "Vantage", name = "Vantage", cat = "Shooter",
+		placeId = 9818227981, gameId = 3631977525, file = "vantage_hub.lua",
+		embed = true, gkey = "__VANTAGE_HUB",
+		desc = "Custom ESP, held softaim, grounded bhop and experimental spike marker.",
 	},
 	{ id = "counterblox", moduleKey = "Counterblox", name = "Counter Blox", cat = "Shooter",
 		placeId = 301549746, gameId = 115797356, file = "counterblox_esp.lua",
@@ -442,6 +444,7 @@ local function loadConfig()
 	if type(saved.autosave) == "boolean" then state.autosave = saved.autosave end
 	if type(saved.autoAdmin) == "boolean" then state.autoAdmin = saved.autoAdmin end
 	if type(saved.reduceMotion) == "boolean" then state.reduceMotion = saved.reduceMotion end
+	if type(saved.teleportRecovery) == "boolean" then state.teleportRecovery = saved.teleportRecovery end
 	if type(saved.navHidden) == "boolean" then state.navHidden = saved.navHidden end
 	if type(saved.favorites) == "table" then
 		local migrated, changed = {}, false
@@ -489,6 +492,17 @@ loadConfig()
 if favoritesMigrated then saveConfig(true) end
 if UIKit then UIKit.reduceMotion = state.reduceMotion == true end
 state.autoOpen = true
+-- Set only by the queued teleport loader while it runs this file.
+local handoffBoot = G.__R3ST_HANDOFF_BOOT ~= nil
+local handoff = Runtime.handoff({
+	globals = G, queue = Runtime.queueApi(G), write = writefile, jobId = game.JobId,
+	owner = {}, token = function() return HttpService:GenerateGUID(false) end,
+})
+local function armHandoff()
+	local ok, err = handoff.arm()
+	hubLog(ok and "info" or "warn", "teleport handoff " .. (ok and "armed" or ("not armed: " .. tostring(err))))
+	return ok, err
+end
 local entryById = {}
 for _, entry in ipairs(REGISTRY) do
 	entryById[entry.id] = entry
@@ -785,16 +799,40 @@ content = mk("Frame", {
 }, contentViewport)
 round(content, 12)
 stroke(content)
-launchToast = mk("TextLabel", {
-	Name = "R3ST_Toast", AnchorPoint = Vector2.new(0.5, 1),
-	Position = UDim2.new(0.5, 0, 1, -28), Size = UDim2.fromOffset(0, 38),
-	AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = C.card, BorderSizePixel = 0,
-	Text = "", TextColor3 = C.text, Font = FONT.semi, TextSize = 14, Visible = false,
-	ZIndex = 60,
-}, root)
-round(launchToast, 19)
-stroke(launchToast).Color = C.accent
-mk("UIPadding", { PaddingLeft = UDim.new(0, 20), PaddingRight = UDim.new(0, 20) }, launchToast)
+do
+	local radius = (UIKit and UIKit.RADIUS) or { small = 6, card = 12 }
+	local textSize = ((UIKit and UIKit.TYPE) or { body = 14 }).body
+	launchToast = mk("Frame", {
+		Name = "R3ST_Toast", AnchorPoint = Vector2.new(0.5, 1),
+		Position = UDim2.new(0.5, 0, 1, -SPACE.md), Size = UDim2.fromOffset(0, 40),
+		AutomaticSize = Enum.AutomaticSize.X, BackgroundColor3 = C.bg,
+		BackgroundTransparency = 1, BorderSizePixel = 0, Visible = false, ZIndex = 60,
+	}, root)
+	round(launchToast, radius.card)
+	toastEdge = stroke(launchToast, 1)
+	toastEdge.Color = C.accent
+	mk("UIPadding", {
+		PaddingLeft = UDim.new(0, SPACE.md), PaddingRight = UDim.new(0, SPACE.lg),
+	}, launchToast)
+	mk("UIListLayout", {
+		FillDirection = Enum.FillDirection.Horizontal, Padding = UDim.new(0, SPACE.md),
+		VerticalAlignment = Enum.VerticalAlignment.Center, SortOrder = Enum.SortOrder.LayoutOrder,
+	}, launchToast)
+	toastMark = mk("Frame", {
+		Name = "Mark", Size = UDim2.fromOffset(3, 18), BackgroundColor3 = C.accent,
+		BackgroundTransparency = 1, BorderSizePixel = 0, LayoutOrder = 1, ZIndex = 61,
+	}, launchToast)
+	round(toastMark, radius.small)
+	toastLabel = mk("TextLabel", {
+		Name = "Text", Size = UDim2.new(0, 0, 1, 0), AutomaticSize = Enum.AutomaticSize.X,
+		BackgroundTransparency = 1, Text = "", TextColor3 = C.text, TextTransparency = 1,
+		Font = FONT.semi, TextSize = textSize, TextTruncate = Enum.TextTruncate.AtEnd,
+		LayoutOrder = 2, ZIndex = 61,
+	}, launchToast)
+	-- Keep the card (text + mark + padding) inside the narrowest window.
+	mk("UISizeConstraint", { MaxSize = Vector2.new(MIN_W - 80, math.huge) }, toastLabel)
+	scope.own(toast.cancel)
+end
 setPage = function(name)
 	if not pages[name] then name = "Home" end
 	local changed = state.page ~= name
@@ -1740,6 +1778,15 @@ if UIKit then
 			section = "Configuration", label = "Auto-start Admin", key = "autoAdmin",
 			desc = "Start the command bar on inject. Critical Strike stays manual.",
 		},
+		{
+			section = "Configuration", label = "Reload after teleport", key = "teleportRecovery",
+			desc = "Match and server transfers reopen the Hub and this game's module once.",
+			apply = function(value)
+				if value then return armHandoff() end
+				handoff.disarm(true)
+			end,
+			ready = function() return handoff.status(state.teleportRecovery) end,
+		},
 	}
 	local section = "Appearance"
 	for _, row in ipairs(rows) do
@@ -1749,7 +1796,7 @@ if UIKit then
 		end
 		local box = widgets.toggle(
 			settingsScroll,
-			{ label = row.label, desc = row.desc, key = row.key, set = row.apply }
+			{ label = row.label, desc = row.desc, key = row.key, set = row.apply, ready = row.ready }
 		)
 		for _, child in ipairs(box:GetChildren()) do
 			if child:IsA("TextLabel") and child.Text == row.label then
@@ -1862,8 +1909,8 @@ do
 	)
 	local result = label(
 		aboutBody,
-		"Sends your Roblox UserId, the build stamps, this PlaceId "
-			.. "and the tail of your hub/module logs. Nothing else.",
+		"Sends build stamps and game/place IDs only. No player identity, notes or logs. "
+			.. "Only sends when you click and a private HTTPS destination is configured.",
 		UDim2.new(1, -8, 0, 30), UDim2.fromOffset(0, y + 46), 12,
 		C.dim
 	)
@@ -1876,9 +1923,7 @@ do
 				result.Text = "report unavailable in this build"
 				return
 			end
-			local ok, msg = api.report(
-				tostring(game.Players.LocalPlayer and game.Players.LocalPlayer.UserId or "friend")
-			)
+			local ok, msg = api.report()
 			result.Text = (ok and "sent — thank you. " or "could not send — ") .. tostring(msg)
 		end)
 	end)
@@ -2018,6 +2063,8 @@ destroy = function()
 	if saveQueued then saveConfig(true) end
 	profiler.stop("Hub unloaded")
 	alive = false
+	toast.cancel()
+	if handoff.disarm() then hubLog("info", "teleport handoff voided by unload") end -- no-op if a replacement owns it
 	unmountAll()
 	for _, c in ipairs(connections) do
 		pcall(function() c:Disconnect() end)
@@ -2101,6 +2148,7 @@ local function hubStatus()
 		end)(),
 		"place " .. tostring(game.PlaceId) .. " universe " .. tostring(game.GameId),
 		"targets: " .. table.concat(reloadTargets(), ", "),
+		"teleport: " .. select(2, handoff.status(state.teleportRecovery)) .. (handoffBoot and " (this Hub came from a handoff)" or ""),
 	}
 	for _, id in ipairs(reloadTargets()) do
 		local entry = hostEntries[id]
@@ -2160,66 +2208,42 @@ local function reload(target)
 end
 -- An optional private destination is supplied locally through G.__R3ST_REPORT_URL.
 -- Never embed a private endpoint in the publicly mirrored source.
-local REPORT_TAIL = 24000 -- bytes per log; the receiver caps a post at 2 MB
-local function tailFile(path, n)
-	local ok, body = pcall(readfile, path)
-	if not ok or type(body) ~= "string" then return ("(%s unreadable)"):format(path) end
-	if #body > n then body = "...(truncated)...\n" .. body:sub(#body - n) end
-	return body
-end
-local function buildReport(note)
+-- Positive allowlist: raw logs, notes, executor strings and status text stay local.
+-- Legacy report(who, note) arguments are intentionally ignored for privacy.
+local function buildReport()
+	local function stamp(value)
+		return type(value) == "string" and #value <= 80 and value:match("^[%w%._%-]+$") and value or "unknown"
+	end
+	local function gameId(value)
+		return type(value) == "number" and value >= 0 and value < math.huge and value == math.floor(value) and tostring(value) or "unknown"
+	end
 	local parts = {
-		("== r3st report %s =="):format(os.date("%Y-%m-%d %H:%M:%S")),
-		("hub build : %s"):format(BUILD_VERSION),
-		("place     : %s   universe: %s"):format(tostring(game.PlaceId), tostring(game.GameId)),
-		("module    : %s"):format(
-			activeEntry and (activeEntry.name .. " / " .. activeEntry.file) or "none"
-		),
-		("executor  : %s"):format(
-			(identifyexecutor and select(1, pcall(identifyexecutor))) and identifyexecutor()
-				or "unknown"
-		),
-		("note      : %s"):format(note and note ~= "" and note or "(none given)"),
-		("status    : %s"):format(tostring(hubStatus())),
-		("mounted   : %s"):format((function()
-			local names = {}
-			for id in pairs(mountedModules) do
-				names[#names + 1] = tostring(id)
-			end
-			table.sort(names)
-			return #names > 0 and table.concat(names, ", ") or "none"
-		end)()),
-		"", "---- logs/rbx_hub.log ----",
-		tailFile("logs/rbx_hub.log", REPORT_TAIL),
+		"r3st-report-schema: 2",
+		"hub-build: " .. stamp(BUILD_VERSION),
+		"place-id: " .. gameId(game.PlaceId),
+		"game-id: " .. gameId(game.GameId),
 	}
-	if isfile and isfile("logs/resthub_loader.log") then
-		parts[#parts + 1] = "---- logs/resthub_loader.log ----"
-		parts[#parts + 1] = tailFile("logs/resthub_loader.log", REPORT_TAIL)
-	end
-	local seen = {}
+	-- Only registered module IDs and their build constants; no player-derived text.
+	local ids = {}
 	for id in pairs(mountedModules) do
-		local entry = hostEntries[id]
-		local name = entry and entry.file:gsub("%.lua$", "")
-		if name and not seen[name] then
-			seen[name] = true
-			parts[#parts + 1] = ("---- logs/%s.log ----"):format(name)
-			parts[#parts + 1] = tailFile(("logs/%s.log"):format(name), REPORT_TAIL)
-		end
+		if hostEntries[id] then ids[#ids + 1] = id end
 	end
-	if activeEntry then
-		local name = activeEntry.file:gsub("%.lua$", "")
-		if not seen[name] then
-			parts[#parts + 1] = ("---- logs/%s.log ----"):format(name)
-			parts[#parts + 1] = tailFile(("logs/%s.log"):format(name), REPORT_TAIL)
-		end
+	table.sort(ids)
+	for _, id in ipairs(ids) do
+		if #parts >= 36 then break end
+		local entry = hostEntries[id]
+		local handle = G[entry.gkey]
+		parts[#parts + 1] = "module: " .. stamp(id) .. " build=" .. stamp(type(handle) == "table" and handle.build)
 	end
 	return table.concat(parts, "\n")
 end
-local function sendReport(who, note)
-	local body = buildReport(note)
+local function sendReport()
+	local body = buildReport()
 	pcall(writefile, "logs/r3st_report_last.txt", body) -- always keep a local copy
 	local reportUrl = G.__R3ST_REPORT_URL
-	if type(reportUrl) ~= "string" or not reportUrl:match("^https://[^%s?#]+$") then
+	if type(reportUrl) ~= "string" or #reportUrl > 2048
+		or not (reportUrl:match("^https://[%w%.%-]+/[^%s?#@\\]*$") or reportUrl:match("^https://[%w%.%-]+$"))
+		or reportUrl:find("[%c]") then
 		return false, "no private HTTPS report destination configured; "
 			.. "logs/r3st_report_last.txt was written instead"
 	end
@@ -2229,17 +2253,16 @@ local function sendReport(who, note)
 			"this executor exposes no HTTP request function; "
 				.. "logs/r3st_report_last.txt was written instead"
 	end
-	who = (tostring(who or "friend"):gsub("[^%w%-_]", "")):sub(1, 24)
-	if who == "" then who = "friend" end
 	local ok, res = pcall(req, {
-		Url = reportUrl .. "?who=" .. who, Method = "POST",
+		Url = reportUrl, Method = "POST",
 		Headers = { ["Content-Type"] = "text/plain" }, Body = body,
 	})
-	if not ok then return false, "send failed: " .. tostring(res) end
-	local code = type(res) == "table" and (res.StatusCode or res.Status or 0) or 0
+	if not ok then return false, "send failed; private destination details omitted" end
+	local code = type(res) == "table" and tonumber(res.StatusCode or res.Status) or 0
+	if type(code) ~= "number" or code ~= math.floor(code) or code < 100 or code > 599 then code = 0 end
 	if code >= 200 and code < 300 then
-		hubLog("info", "report sent as " .. who .. " (" .. #body .. " bytes)")
-		return true, ("sent %d bytes as %s"):format(#body, who)
+		hubLog("info", "metadata report sent (" .. #body .. " bytes)")
+		return true, ("sent %d bytes of build metadata"):format(#body)
 	end
 	return false, "receiver returned " .. tostring(code)
 end
@@ -2248,6 +2271,7 @@ local api = {
 	destroy = destroy, build = BUILD_VERSION, reload = reload, status = hubStatus,
 	targets = reloadTargets, inspect = hubInspect, contract = SHELL_CONTRACT, logFile = RELOAD_LOG,
 	report = sendReport, reportPreview = buildReport, profile = profiler,
+	notify = setLaunchToast, handoff = function() return handoff.status(state.teleportRecovery) end,
 }
 if UIKit and UIKit.resizeGrip then
 	UIKit.resizeGrip(root, {
@@ -2448,7 +2472,7 @@ if not activeEntry then
 			.. " that entry is missing its gameId."
 	)
 end
-if state.autoOpen then
+if state.autoOpen or handoffBoot then
 	task.defer(function()
 		if not alive then return end
 		if activeEntry and activeEntry.embed and mountActiveGame then setPage(activeEntry.name) end
@@ -2461,7 +2485,11 @@ if state.autoOpen then
 		if activeEntry and not activeEntry.embed then runModule(activeEntry, nil) end
 	end)
 end
-if state.autoAdmin ~= false and launchAdmin then
+if handoffBoot then
+	if activeEntry then state.selectedGame = activeEntry.name end
+	hubLog("info", "teleport handoff to " .. (activeEntry and activeEntry.id or "no registry row")
+		.. "; admin autostart skipped: a handoff never starts admin.lua")
+elseif state.autoAdmin ~= false and launchAdmin then
 	if game.PlaceId == 8246089782 or game.GameId == 3163813433 then
 		hubLog("info", "admin autostart skipped: Critical Strike kicks for admin.lua")
 	else
@@ -2479,7 +2507,14 @@ end
 if activeEntry and activeEntry.embed and navButtons[activeEntry.name] and mountActiveGame then
 	connect(navButtons[activeEntry.name].Activated, function() mountActiveGame(false) end)
 end
+handoff.watch(game:GetService("Players").LocalPlayer, game:GetService("TeleportService"), connect, function(failed)
+	if failed then setLaunchToast("Teleport failed — Hub reload stays armed", true)
+	elseif saveQueued then saveConfig(true) end
+end)
 api.ready = true
+-- If the swap still fails, release gives the queued loader back to the resident Hub.
+if state.teleportRecovery and armHandoff() then scope.own(handoff.release) end
+if handoffBoot then setLaunchToast("Reloaded after teleport", false) end
 return api
 end)
 if not booted then

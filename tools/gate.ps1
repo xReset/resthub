@@ -14,7 +14,9 @@ foreach ($path in $Lua) {
     if (!(Test-Path $full -PathType Leaf)) { throw "GATE FAIL missing $path" }
     & $Compiler --binary $full *> $null
     if ($LASTEXITCODE -ne 0) { throw "GATE FAIL compile $path" }
-    Write-Host "COMPILE_OK $path"
+    & $Compiler --binary -O0 $full *> $null
+    if ($LASTEXITCODE -ne 0) { throw "GATE FAIL compile -O0 $path" }
+    Write-Host "COMPILE_OK $path default+-O0"
 }
 $loaderText = [IO.File]::ReadAllText((Join-Path $Root "loader.lua"))
 $versionMatch = [regex]::Match($loaderText, 'local LOADER_VERSION = (\d+)')
@@ -38,8 +40,16 @@ $hits = foreach ($file in $tracked) {
     $full = Join-Path $Root $file
     if (Test-Path $full -PathType Leaf) { Select-String -Path $full -Pattern $patterns -AllMatches -CaseSensitive:$false }
 }
-if ($hits) { $hits | ForEach-Object { Write-Host $_ }; throw "GATE FAIL possible secret" }
+if ($hits) {
+    $hits | ForEach-Object { Write-Host "SECRET_PATTERN_BLOCK $($_.Filename):$($_.LineNumber) [value omitted]" }
+    throw "GATE FAIL possible secret"
+}
 Write-Host "SECRET_SCAN_OK"
+$PrivacyGate = Join-Path $PSScriptRoot "..\..\Potassium\tools\audit_public_release.py"
+& python $PrivacyGate --root $Root --manifest
+if ($LASTEXITCODE -ne 0) { throw "GATE FAIL public privacy patterns" }
+& python (Join-Path $PSScriptRoot "verify_revision.py")
+if ($LASTEXITCODE -ne 0) { throw "GATE FAIL immutable revision bytes" }
 python -m unittest discover -s (Join-Path $Root "tests") -v
 if ($LASTEXITCODE -ne 0) { throw "GATE FAIL loader tests" }
 if ($CheckRemote) {
