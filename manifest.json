@@ -1,334 +1,344 @@
 {
-    "schema":  1,
-    "minLoader":  6,
-    "release":  "2026-10-28.1",
-    "revision":  "62e00087c7d36dd7cb218ee9ec212db2227a0920",
-    "files":  {
-                  "hub.lua":  {
-                                  "sha256":  "08ad805ffec5d8d4de766acafe1137d20c3b1a9e70baf22d72e6f61d483adc74",
-                                  "localName":  "hub.lua"
-                              },
-                  "r3st_runtime.lua":  {
-                                           "sha256":  "e3417577518a0317cc5bb6ccfbd58c14c7254b66ad25b6ec54ba5f1a924286fa",
-                                           "localName":  "r3st_runtime.lua"
-                                       },
-                  "r3st_ui.lua":  {
-                                      "sha256":  "e3f0b7bcb08cdbb4328cd362d65b11359a4660ef7c26979324120e0f426793db",
-                                      "localName":  "r3st_ui.lua"
-                                  },
-                  "anims.lua":  {
-                                    "sha256":  "31b7c89ffb386aca1581c1462287061ac388dd811f3bfa56aa4e94ec997d05aa",
-                                    "localName":  "anims.lua"
-                                },
-                  "log.lua":  {
-                                  "sha256":  "55e3b7b153a7d36c7c2be110c189010100ff1a85d45e325cb1d05f34b60258b8",
-                                  "localName":  "log.lua"
-                              },
-                  "telemetry.lua":  {
-                                        "sha256":  "14b5d3057196696c4b8055855bc7244d949e4b9a6093bcdf9976c6e24a08bdac",
-                                        "localName":  "resthub_telemetry.lua"
-                                    },
-                  "games/rochess_hub.lua":  {
-                                                "sha256":  "19da68993ef68813e9c7fe20ece17a660e441cda82b623c10a6a262c780ab6b8",
-                                                "localName":  "rochess_hub.lua"
-                                            },
-                  "games/bike_universe_hub.lua":  {
-                                                      "sha256":  "67fac2fcb3fd55fb2d9c126db61531dc5e481161f56d2a8f096e13fd70533b2a",
-                                                      "localName":  "bike_universe_hub.lua"
-                                                  },
-                  "games/backseat_rally_hub.lua":  {
-                                                       "sha256":  "0e1c28dbd24a32b3a50ff02d051df7b317ec02cd26ff1cc66e244b93dd530b47",
-                                                       "localName":  "backseat_rally_hub.lua"
-                                                   },
-                  "games/wideopen_hub.lua":  {
-                                                 "sha256":  "ef7d039e4139bc380c1d99f9a1986dc6e1f37722e3fbef19676910e6dc3a1c94",
-                                                 "localName":  "wideopen_hub.lua"
-                                             },
-                  "games/gd2.lua":  {
-                                        "sha256":  "0887c4871feda7ad95b4acb0ac9eff52009f48af4ccee4f96976784f8a7837cc",
-                                        "localName":  "gd2.lua"
-                                    },
-                  "games/blr_hub.lua":  {
-                                            "sha256":  "7cc24affd543632c54ffdb62f51a715aa46682a6d4c7eed43934897ee1754467",
-                                            "localName":  "blr_hub.lua"
-                                        },
-                  "games/vbl_hub.lua":  {
-                                            "sha256":  "b6b17419d136bdf927d2e90ec799e1020626fee327f63f9eedd046b91a6e41e7",
-                                            "localName":  "vbl_hub.lua"
-                                        },
-                  "games/azure_latch_hub.lua":  {
-                                                    "sha256":  "6ea23ea6ad73d62b900c45d31aa8221867f941b1fed0a27b75c104c1a557cc70",
-                                                    "localName":  "azure_latch_hub.lua"
-                                                },
-                  "games/cs_admin.lua":  {
-                                             "sha256":  "c1d97cec9e6b294c4a2da5519308a3eb7f855531900f39244ff8b761864a3f2e",
-                                             "localName":  "cs_admin.lua"
-                                         },
-                  "games/gakuran_autoparry.lua":  {
-                                                      "sha256":  "a364cf6b3ee71382ee1cc9eab233d6e6ab5ef3396834c355965b877451cdf636",
-                                                      "localName":  "gakuran_autoparry.lua"
-                                                  },
-                  "games/bab_hub.lua":  {
-                                            "sha256":  "1a2dc31bfcfcfef53f2705915b6d6ce1eed73de0412407344e6806957b91c162",
-                                            "localName":  "bab_hub.lua"
-                                        },
-                  "games/fisch_hub.lua":  {
-                                              "sha256":  "5e4a2358f0364145ed9f8012d32ecfabf564fe8bb3e2fe203652ee5e1464b50c",
-                                              "localName":  "fisch_hub.lua"
-                                          },
-                  "games/sell_ores_hub.lua":  {
-                                                  "sha256":  "91de312e4028f171499c58d5d3e916e1fff7ba1ac721b523859074293c347477",
-                                                  "localName":  "sell_ores_hub.lua"
-                                              },
-                  "games/overhang_hub.lua":  {
-                                                 "sha256":  "dec6a4e2e2c71c59100d6c473aacb86db102b4eba71d6f08548f150860f63d52",
-                                                 "localName":  "overhang_hub.lua"
-                                             },
-                  "games/illegal_soccer_hub.lua":  {
-                                                       "sha256":  "b5e467d283c27367b9dc7a7bf9f9b1ecabb13278ae5406eccffa2b64c8087d4f",
-                                                       "localName":  "illegal_soccer_hub.lua"
-                                                   },
-                  "games/runaways.lua":  {
-                                             "sha256":  "01c661a9b81ce3745edaf104ba3299ba2ac4d651116265674be31c40ce8f0b75",
-                                             "localName":  "runaways.lua"
-                                         },
-                  "games/mafia_hub.lua":  {
-                                              "sha256":  "952ba7b2fd073d12e8a000b893a771ed2ecab6594d743dbae40f559365e5defc",
-                                              "localName":  "mafia_hub.lua"
-                                          },
-                  "games/evade_kit.lua":  {
-                                              "sha256":  "ddde84a52dea7afa8bc8eca323e85040fda806b0144317f5c1d28bd1a46ef8ee",
-                                              "localName":  "evade_kit.lua"
-                                          },
-                  "games/counterblox_esp.lua":  {
-                                                    "sha256":  "9a98c12859b046d1ae539308dd3ef72e894ee2b1539a1b17d099907e3d820e53",
-                                                    "localName":  "counterblox_esp.lua"
-                                                },
-                  "games/coldwar_esp.lua":  {
-                                                "sha256":  "402a84b87641f3d8865b643f06a7926ca0cac6c1eb1c9d65432f6a6b133154bf",
-                                                "localName":  "coldwar_esp.lua"
-                                            },
-                  "games/bloxstrike_esp.lua":  {
-                                                   "sha256":  "27827681ea98628a82daf26fcbf87422a220636659cad0f1623a3a0e8bffaa6d",
-                                                   "localName":  "bloxstrike_esp.lua"
-                                               },
-                  "games/operation_one_esp.lua":  {
-                                                      "sha256":  "01fcb302b1ca163241ef7e6c964f21a20670aa38dccc56fc36e5376d3d62cfe6",
-                                                      "localName":  "operation_one_esp.lua"
-                                                  },
-                  "games/flee_facility_esp.lua":  {
-                                                      "sha256":  "8b98c52ed7ea70259a218abf950e7f63073b0e3a7d977154b3bc9dd1a34f723b",
-                                                      "localName":  "flee_facility_esp.lua"
-                                                  },
-                  "games/dqr_hub.lua":  {
-                                            "sha256":  "11810564e6dcfd8f0b3e16b9e058ba84b738f7072ada5efc4010fd21f9f22eb4",
-                                            "localName":  "dqr_hub.lua"
-                                        },
-                  "games/rivals_esp.lua":  {
-                                               "sha256":  "85f1568b7a73779480207527821d5efbe13e874286dc17aed0488d5ba7cea8bf",
-                                               "localName":  "rivals_esp.lua"
-                                           },
-                  "games/arsenal_esp.lua":  {
-                                                "sha256":  "6d0dcade660c8d1810d7ca39e86126cd07a9bd601756f4004ef59f94dc8f1008",
-                                                "localName":  "arsenal_esp.lua"
-                                            },
-                  "games/ps2_hub.lua":  {
-                                            "sha256":  "ba0ca625c9f6ad2ad0cbdcd609bbb966265b191dce4c22babae33eeb0e61d8b6",
-                                            "localName":  "ps2_hub.lua"
-                                        },
-                  "games/abd_item_esp.lua":  {
-                                                 "sha256":  "74f89e3ab7e06174f960c1e67f16111420f17847ddcb5aea957a1833ad842249",
-                                                 "localName":  "abd_item_esp.lua"
-                                             },
-                  "games/clover_hub.lua":  {
-                                               "sha256":  "49631c34dca187a5f553220c9976723581f7febcb32048f7d8af2f8808a3f96a",
-                                               "localName":  "clover_hub.lua"
-                                           },
-                  "games/twisted_hub.lua":  {
-                                                "sha256":  "79406b5a9e8f0b677c5ed6fe9b70330b38da396cb62823719321b8ca0926dc14",
-                                                "localName":  "twisted_hub.lua"
-                                            }
-              },
-    "modules":  [
-                    {
-                        "id":  "rochess",
-                        "gameId":  10768845402,
-                        "placeId":  139717576471404,
-                        "path":  "games/rochess_hub.lua"
-                    },
-                    {
-                        "id":  "bike-universe",
-                        "gameId":  10768284407,
-                        "placeId":  98628861455414,
-                        "path":  "games/bike_universe_hub.lua"
-                    },
-                    {
-                        "id":  "backseat-rally",
-                        "gameId":  10769543742,
-                        "placeId":  94278659624110,
-                        "path":  "games/backseat_rally_hub.lua"
-                    },
-                    {
-                        "id":  "wideopen",
-                        "gameId":  10766812776,
-                        "placeId":  109959833715820,
-                        "path":  "games/wideopen_hub.lua"
-                    },
-                    {
-                        "id":  "ghost-driver",
-                        "gameId":  10173311467,
-                        "placeId":  137228775845999,
-                        "path":  "games/gd2.lua"
-                    },
-                    {
-                        "id":  "blue-lock-rivals",
-                        "gameId":  6325068386,
-                        "placeId":  18668065416,
-                        "path":  "games/blr_hub.lua"
-                    },
-                    {
-                        "id":  "volleyball-legends",
-                        "gameId":  6931042565,
-                        "placeId":  73956553001240,
-                        "path":  "games/vbl_hub.lua"
-                    },
-                    {
-                        "id":  "azure-latch",
-                        "gameId":  6945584306,
-                        "placeId":  94647229517154,
-                        "path":  "games/azure_latch_hub.lua"
-                    },
-                    {
-                        "id":  "critical-strike",
-                        "gameId":  3163813433,
-                        "placeId":  8246089782,
-                        "path":  "games/cs_admin.lua"
-                    },
-                    {
-                        "id":  "gakuran",
-                        "gameId":  9199655655,
-                        "placeId":  128736949265057,
-                        "path":  "games/gakuran_autoparry.lua"
-                    },
-                    {
-                        "id":  "build-a-base-rng",
-                        "gameId":  10253235584,
-                        "placeId":  99108783264633,
-                        "path":  "games/bab_hub.lua"
-                    },
-                    {
-                        "id":  "fisch",
-                        "gameId":  5750914919,
-                        "placeId":  131716211654599,
-                        "path":  "games/fisch_hub.lua"
-                    },
-                    {
-                        "id":  "sell-ores",
-                        "gameId":  10336278580,
-                        "placeId":  122572082932179,
-                        "path":  "games/sell_ores_hub.lua"
-                    },
-                    {
-                        "id":  "overhang",
-                        "gameId":  9878210988,
-                        "placeId":  125633828844867,
-                        "path":  "games/overhang_hub.lua"
-                    },
-                    {
-                        "id":  "illegal-soccer",
-                        "gameId":  10155360168,
-                        "placeId":  126987974021910,
-                        "path":  "games/illegal_soccer_hub.lua"
-                    },
-                    {
-                        "id":  "runaways",
-                        "gameId":  7585140258,
-                        "placeId":  117311404196294,
-                        "path":  "games/runaways.lua"
-                    },
-                    {
-                        "id":  "mafia",
-                        "gameId":  7497471789,
-                        "placeId":  83705601973004,
-                        "path":  "games/mafia_hub.lua"
-                    },
-                    {
-                        "id":  "evade",
-                        "gameId":  3647333358,
-                        "placeId":  9872472334,
-                        "path":  "games/evade_kit.lua"
-                    },
-                    {
-                        "id":  "counterblox",
-                        "gameId":  115797356,
-                        "placeId":  301549746,
-                        "path":  "games/counterblox_esp.lua"
-                    },
-                    {
-                        "id":  "cold-war",
-                        "gameId":  4750561026,
-                        "placeId":  13687899540,
-                        "path":  "games/coldwar_esp.lua"
-                    },
-                    {
-                        "id":  "bloxstrike",
-                        "gameId":  7633926880,
-                        "placeId":  114234929420007,
-                        "path":  "games/bloxstrike_esp.lua"
-                    },
-                    {
-                        "id":  "operation-one",
-                        "gameId":  8307114974,
-                        "placeId":  72920620366355,
-                        "path":  "games/operation_one_esp.lua"
-                    },
-                    {
-                        "id":  "flee-facility",
-                        "gameId":  372226183,
-                        "placeId":  893973440,
-                        "path":  "games/flee_facility_esp.lua"
-                    },
-                    {
-                        "id":  "dungeon-quest-reborn",
-                        "gameId":  9931749389,
-                        "placeId":  77649408247578,
-                        "path":  "games/dqr_hub.lua"
-                    },
-                    {
-                        "id":  "rivals",
-                        "gameId":  6035872082,
-                        "placeId":  117398147513099,
-                        "path":  "games/rivals_esp.lua"
-                    },
-                    {
-                        "id":  "arsenal",
-                        "gameId":  111958650,
-                        "placeId":  286090429,
-                        "path":  "games/arsenal_esp.lua"
-                    },
-                    {
-                        "id":  "project-slayers-2",
-                        "gameId":  5595353122,
-                        "placeId":  136406881576517,
-                        "path":  "games/ps2_hub.lua"
-                    },
-                    {
-                        "id":  "bizarre-day-classic",
-                        "gameId":  969567031,
-                        "placeId":  120318126233314,
-                        "path":  "games/abd_item_esp.lua"
-                    },
-                    {
-                        "id":  "clover-rpg",
-                        "gameId":  3164482049,
-                        "placeId":  8248288152,
-                        "path":  "games/clover_hub.lua"
-                    },
-                    {
-                        "id":  "twisted",
-                        "gameId":  2251388500,
-                        "placeId":  14170731342,
-                        "path":  "games/twisted_hub.lua"
-                    }
-                ]
+  "schema": 1,
+  "minLoader": 6,
+  "release": "2026-10-29.1",
+  "revision": "8a265541400bdc89c4207109123000435403a89e",
+  "files": {
+    "hub.lua": {
+      "sha256": "4e429950c02544a14caa87326fa225450f93c0cdb27afac51fa12483027ce508",
+      "localName": "hub.lua"
+    },
+    "r3st_runtime.lua": {
+      "sha256": "7bc7069a85f8ea53a49bc7573b55afa14b6f03dd4f767134b8a9963ac9ee13b8",
+      "localName": "r3st_runtime.lua"
+    },
+    "r3st_ui.lua": {
+      "sha256": "e3f0b7bcb08cdbb4328cd362d65b11359a4660ef7c26979324120e0f426793db",
+      "localName": "r3st_ui.lua"
+    },
+    "anims.lua": {
+      "sha256": "39118adac65273ffc5781028e26b487dc062a2ae1afe0934e421af4beeb22b9f",
+      "localName": "anims.lua"
+    },
+    "log.lua": {
+      "sha256": "55e3b7b153a7d36c7c2be110c189010100ff1a85d45e325cb1d05f34b60258b8",
+      "localName": "log.lua"
+    },
+    "telemetry.lua": {
+      "sha256": "45241679b40df40297d951a8b8675ec4db1bde7755089cd7cffc5355a422fb2e",
+      "localName": "resthub_telemetry.lua"
+    },
+    "games/rochess_hub.lua": {
+      "sha256": "19da68993ef68813e9c7fe20ece17a660e441cda82b623c10a6a262c780ab6b8",
+      "localName": "rochess_hub.lua"
+    },
+    "games/bike_universe_hub.lua": {
+      "sha256": "cfac3e91222a68fdbb08ed5541a4f812314b9421d86f3a364481682a3bb7d95a",
+      "localName": "bike_universe_hub.lua"
+    },
+    "games/backseat_rally_hub.lua": {
+      "sha256": "0e1c28dbd24a32b3a50ff02d051df7b317ec02cd26ff1cc66e244b93dd530b47",
+      "localName": "backseat_rally_hub.lua"
+    },
+    "games/wideopen_hub.lua": {
+      "sha256": "ef7d039e4139bc380c1d99f9a1986dc6e1f37722e3fbef19676910e6dc3a1c94",
+      "localName": "wideopen_hub.lua"
+    },
+    "games/gd2.lua": {
+      "sha256": "0887c4871feda7ad95b4acb0ac9eff52009f48af4ccee4f96976784f8a7837cc",
+      "localName": "gd2.lua"
+    },
+    "games/blr_hub.lua": {
+      "sha256": "7cc24affd543632c54ffdb62f51a715aa46682a6d4c7eed43934897ee1754467",
+      "localName": "blr_hub.lua"
+    },
+    "games/vbl_hub.lua": {
+      "sha256": "b6b17419d136bdf927d2e90ec799e1020626fee327f63f9eedd046b91a6e41e7",
+      "localName": "vbl_hub.lua"
+    },
+    "games/azure_latch_hub.lua": {
+      "sha256": "6ea23ea6ad73d62b900c45d31aa8221867f941b1fed0a27b75c104c1a557cc70",
+      "localName": "azure_latch_hub.lua"
+    },
+    "games/cs_admin.lua": {
+      "sha256": "4b76e8cdee34a642e8c1011acb22e0bc7d86ee115901b766b5b9dd37e76ea638",
+      "localName": "cs_admin.lua"
+    },
+    "games/gakuran_autoparry.lua": {
+      "sha256": "a364cf6b3ee71382ee1cc9eab233d6e6ab5ef3396834c355965b877451cdf636",
+      "localName": "gakuran_autoparry.lua"
+    },
+    "games/bab_hub.lua": {
+      "sha256": "1a2dc31bfcfcfef53f2705915b6d6ce1eed73de0412407344e6806957b91c162",
+      "localName": "bab_hub.lua"
+    },
+    "games/fisch_hub.lua": {
+      "sha256": "5e4a2358f0364145ed9f8012d32ecfabf564fe8bb3e2fe203652ee5e1464b50c",
+      "localName": "fisch_hub.lua"
+    },
+    "games/sell_ores_hub.lua": {
+      "sha256": "91de312e4028f171499c58d5d3e916e1fff7ba1ac721b523859074293c347477",
+      "localName": "sell_ores_hub.lua"
+    },
+    "games/overhang_hub.lua": {
+      "sha256": "dec6a4e2e2c71c59100d6c473aacb86db102b4eba71d6f08548f150860f63d52",
+      "localName": "overhang_hub.lua"
+    },
+    "games/illegal_soccer_hub.lua": {
+      "sha256": "b5e467d283c27367b9dc7a7bf9f9b1ecabb13278ae5406eccffa2b64c8087d4f",
+      "localName": "illegal_soccer_hub.lua"
+    },
+    "games/runaways.lua": {
+      "sha256": "01c661a9b81ce3745edaf104ba3299ba2ac4d651116265674be31c40ce8f0b75",
+      "localName": "runaways.lua"
+    },
+    "games/mafia_hub.lua": {
+      "sha256": "952ba7b2fd073d12e8a000b893a771ed2ecab6594d743dbae40f559365e5defc",
+      "localName": "mafia_hub.lua"
+    },
+    "games/evade_kit.lua": {
+      "sha256": "ddde84a52dea7afa8bc8eca323e85040fda806b0144317f5c1d28bd1a46ef8ee",
+      "localName": "evade_kit.lua"
+    },
+    "games/vantage_hub.lua": {
+      "sha256": "8f229e68930d6edfbb62e705b409668a030b14a88687bd94ea08166a511093fa",
+      "localName": "vantage_hub.lua"
+    },
+    "games/counterblox_esp.lua": {
+      "sha256": "9a98c12859b046d1ae539308dd3ef72e894ee2b1539a1b17d099907e3d820e53",
+      "localName": "counterblox_esp.lua"
+    },
+    "games/coldwar_esp.lua": {
+      "sha256": "402a84b87641f3d8865b643f06a7926ca0cac6c1eb1c9d65432f6a6b133154bf",
+      "localName": "coldwar_esp.lua"
+    },
+    "games/bloxstrike_esp.lua": {
+      "sha256": "27827681ea98628a82daf26fcbf87422a220636659cad0f1623a3a0e8bffaa6d",
+      "localName": "bloxstrike_esp.lua"
+    },
+    "games/operation_one_esp.lua": {
+      "sha256": "01fcb302b1ca163241ef7e6c964f21a20670aa38dccc56fc36e5376d3d62cfe6",
+      "localName": "operation_one_esp.lua"
+    },
+    "games/flee_facility_esp.lua": {
+      "sha256": "8b98c52ed7ea70259a218abf950e7f63073b0e3a7d977154b3bc9dd1a34f723b",
+      "localName": "flee_facility_esp.lua"
+    },
+    "games/dqr_hub.lua": {
+      "sha256": "11810564e6dcfd8f0b3e16b9e058ba84b738f7072ada5efc4010fd21f9f22eb4",
+      "localName": "dqr_hub.lua"
+    },
+    "games/rivals_esp.lua": {
+      "sha256": "85f1568b7a73779480207527821d5efbe13e874286dc17aed0488d5ba7cea8bf",
+      "localName": "rivals_esp.lua"
+    },
+    "games/arsenal_esp.lua": {
+      "sha256": "6d0dcade660c8d1810d7ca39e86126cd07a9bd601756f4004ef59f94dc8f1008",
+      "localName": "arsenal_esp.lua"
+    },
+    "games/ps2_hub.lua": {
+      "sha256": "ba0ca625c9f6ad2ad0cbdcd609bbb966265b191dce4c22babae33eeb0e61d8b6",
+      "localName": "ps2_hub.lua"
+    },
+    "games/abd_item_esp.lua": {
+      "sha256": "74f89e3ab7e06174f960c1e67f16111420f17847ddcb5aea957a1833ad842249",
+      "localName": "abd_item_esp.lua"
+    },
+    "games/clover_hub.lua": {
+      "sha256": "49631c34dca187a5f553220c9976723581f7febcb32048f7d8af2f8808a3f96a",
+      "localName": "clover_hub.lua"
+    },
+    "games/twisted_hub.lua": {
+      "sha256": "79406b5a9e8f0b677c5ed6fe9b70330b38da396cb62823719321b8ca0926dc14",
+      "localName": "twisted_hub.lua"
+    }
+  },
+  "modules": [
+    {
+      "id": "rochess",
+      "gameId": 10768845402,
+      "placeId": 139717576471404,
+      "path": "games/rochess_hub.lua"
+    },
+    {
+      "id": "bike-universe",
+      "gameId": 10768284407,
+      "placeId": 98628861455414,
+      "path": "games/bike_universe_hub.lua"
+    },
+    {
+      "id": "backseat-rally",
+      "gameId": 10769543742,
+      "placeId": 94278659624110,
+      "path": "games/backseat_rally_hub.lua"
+    },
+    {
+      "id": "wideopen",
+      "gameId": 10766812776,
+      "placeId": 109959833715820,
+      "path": "games/wideopen_hub.lua"
+    },
+    {
+      "id": "ghost-driver",
+      "gameId": 10173311467,
+      "placeId": 137228775845999,
+      "path": "games/gd2.lua"
+    },
+    {
+      "id": "blue-lock-rivals",
+      "gameId": 6325068386,
+      "placeId": 18668065416,
+      "path": "games/blr_hub.lua"
+    },
+    {
+      "id": "volleyball-legends",
+      "gameId": 6931042565,
+      "placeId": 73956553001240,
+      "path": "games/vbl_hub.lua"
+    },
+    {
+      "id": "azure-latch",
+      "gameId": 6945584306,
+      "placeId": 94647229517154,
+      "path": "games/azure_latch_hub.lua"
+    },
+    {
+      "id": "critical-strike",
+      "gameId": 3163813433,
+      "placeId": 8246089782,
+      "path": "games/cs_admin.lua"
+    },
+    {
+      "id": "gakuran",
+      "gameId": 9199655655,
+      "placeId": 128736949265057,
+      "path": "games/gakuran_autoparry.lua"
+    },
+    {
+      "id": "build-a-base-rng",
+      "gameId": 10253235584,
+      "placeId": 99108783264633,
+      "path": "games/bab_hub.lua"
+    },
+    {
+      "id": "fisch",
+      "gameId": 5750914919,
+      "placeId": 131716211654599,
+      "path": "games/fisch_hub.lua"
+    },
+    {
+      "id": "sell-ores",
+      "gameId": 10336278580,
+      "placeId": 122572082932179,
+      "path": "games/sell_ores_hub.lua"
+    },
+    {
+      "id": "overhang",
+      "gameId": 9878210988,
+      "placeId": 125633828844867,
+      "path": "games/overhang_hub.lua"
+    },
+    {
+      "id": "illegal-soccer",
+      "gameId": 10155360168,
+      "placeId": 126987974021910,
+      "path": "games/illegal_soccer_hub.lua"
+    },
+    {
+      "id": "runaways",
+      "gameId": 7585140258,
+      "placeId": 117311404196294,
+      "path": "games/runaways.lua"
+    },
+    {
+      "id": "mafia",
+      "gameId": 7497471789,
+      "placeId": 83705601973004,
+      "path": "games/mafia_hub.lua"
+    },
+    {
+      "id": "evade",
+      "gameId": 3647333358,
+      "placeId": 9872472334,
+      "path": "games/evade_kit.lua"
+    },
+    {
+      "id": "vantage",
+      "gameId": 3631977525,
+      "placeId": 9818227981,
+      "path": "games/vantage_hub.lua"
+    },
+    {
+      "id": "counterblox",
+      "gameId": 115797356,
+      "placeId": 301549746,
+      "path": "games/counterblox_esp.lua"
+    },
+    {
+      "id": "cold-war",
+      "gameId": 4750561026,
+      "placeId": 13687899540,
+      "path": "games/coldwar_esp.lua"
+    },
+    {
+      "id": "bloxstrike",
+      "gameId": 7633926880,
+      "placeId": 114234929420007,
+      "path": "games/bloxstrike_esp.lua"
+    },
+    {
+      "id": "operation-one",
+      "gameId": 8307114974,
+      "placeId": 72920620366355,
+      "path": "games/operation_one_esp.lua"
+    },
+    {
+      "id": "flee-facility",
+      "gameId": 372226183,
+      "placeId": 893973440,
+      "path": "games/flee_facility_esp.lua"
+    },
+    {
+      "id": "dungeon-quest-reborn",
+      "gameId": 9931749389,
+      "placeId": 77649408247578,
+      "path": "games/dqr_hub.lua"
+    },
+    {
+      "id": "rivals",
+      "gameId": 6035872082,
+      "placeId": 117398147513099,
+      "path": "games/rivals_esp.lua"
+    },
+    {
+      "id": "arsenal",
+      "gameId": 111958650,
+      "placeId": 286090429,
+      "path": "games/arsenal_esp.lua"
+    },
+    {
+      "id": "project-slayers-2",
+      "gameId": 5595353122,
+      "placeId": 136406881576517,
+      "path": "games/ps2_hub.lua"
+    },
+    {
+      "id": "bizarre-day-classic",
+      "gameId": 969567031,
+      "placeId": 120318126233314,
+      "path": "games/abd_item_esp.lua"
+    },
+    {
+      "id": "clover-rpg",
+      "gameId": 3164482049,
+      "placeId": 8248288152,
+      "path": "games/clover_hub.lua"
+    },
+    {
+      "id": "twisted",
+      "gameId": 2251388500,
+      "placeId": 14170731342,
+      "path": "games/twisted_hub.lua"
+    }
+  ]
 }
